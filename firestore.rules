@@ -1,0 +1,52 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.uid;
+    }
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    // Domain Validators
+    function isValidUser(data) {
+      return data.keys().hasOnly(['uid', 'displayName', 'email', 'photoURL', 'createdAt']) &&
+             data.uid is string && data.uid == request.auth.uid &&
+             data.email is string && isValidEmail(data.email) &&
+             (data.displayName == null || data.displayName is string) &&
+             (data.photoURL == null || data.photoURL is string) &&
+             data.createdAt is string;
+    }
+
+    function isValidFile(data) {
+      return data.keys().hasOnly(['uid', 'fileName', 'fileUrl', 'fileType', 'uploadedAt']) &&
+             data.uid is string && data.uid == request.auth.uid &&
+             data.fileName is string && data.fileName.size() > 0 &&
+             data.fileUrl is string && data.fileUrl.matches("^https://.*") &&
+             data.fileType is string &&
+             data.uploadedAt is string;
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUser(request.resource.data);
+      allow update: if isOwner(userId) && isValidUser(request.resource.data) && 
+                      request.resource.data.createdAt == resource.data.createdAt;
+    }
+
+    match /files/{fileId} {
+      allow read: if isDocOwner();
+      allow create: if isAuthenticated() && isValidFile(request.resource.data);
+      allow update: if isDocOwner() && isValidFile(request.resource.data) &&
+                      request.resource.data.uploadedAt == resource.data.uploadedAt;
+      allow delete: if isDocOwner();
+    }
+  }
+}

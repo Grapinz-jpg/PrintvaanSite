@@ -1,263 +1,727 @@
-import React, { useState, useMemo } from 'react';
-import { X, Info, CheckCircle2, IndianRupee, ShoppingCart, Send } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Product, CartItem } from '../types';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
-
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
+import { 
+  IndianRupee, 
+  X, 
+  Plus, 
+  Minus, 
+  Upload, 
+  Edit, 
+  Trash2, 
+  Eye,
+  Scissors,
+  CornerDownRight,
+  Image as ImageIcon,
+  CheckCircle,
+  AlertCircle,
+  Square,
+  Monitor,
+  Smartphone,
+  Film,
+  LayoutTemplate,
+  FileImage,
+  Archive,
+  XCircle,
+  Printer,
+  Loader2
+} from 'lucide-react';
+import { Product } from '../types';
+import { auth, storage } from '../firebase';
+import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import { toast } from 'sonner';
 
 interface PricingCalculatorProps {
   product: Product;
   onClose: () => void;
-  onAddToCart: (item: CartItem) => void;
+  onAddToCart: (config: any) => void;
 }
 
-const PRESET_SIZES = [
-  { label: '2×4 ft', w: 2, h: 4 },
-  { label: '4×6 ft', w: 4, h: 6 },
-  { label: '6×8 ft', w: 6, h: 8 },
-  { label: '8×10 ft', w: 8, h: 10 },
-  { label: 'Custom', w: 0, h: 0 },
-];
+type Orientation = '1:1' | '16:9' | '9:16' | '3:1' | '1:3';
+type SizePreset = '2×4' | '4×6' | '6×8' | '8×10' | 'Custom';
+type PrintingType = 'Solvent' | 'Eco Solvent';
 
-const ORIENTATIONS = [
-  { label: '1:1', ratio: 1, name: 'Square' },
-  { label: '16:9', ratio: 16 / 9, name: 'Landscape' },
-  { label: '9:16', ratio: 9 / 16, name: 'Portrait' },
-  { label: '3:1', ratio: 3, name: 'Wide Banner' },
-  { label: '1:3', ratio: 1 / 3, name: 'Tall Banner' },
-];
+interface DesignFile {
+  id: string;
+  file?: File;
+  name: string;
+  size: number;
+  preview?: string;
+  storageUrl?: string;
+  uploadProgress?: number;
+  width: number;
+  height: number;
+  orientation: Orientation;
+}
 
 export default function PricingCalculator({ product, onClose, onAddToCart }: PricingCalculatorProps) {
-  const [selectedSize, setSelectedSize] = useState(PRESET_SIZES[0]);
-  const [customWidth, setCustomWidth] = useState(2);
-  const [customHeight, setCustomHeight] = useState(4);
-  const [orientation, setOrientation] = useState(ORIENTATIONS[1]);
-  const [finishing, setFinishing] = useState(true);
+  const [selectedSize, setSelectedSize] = useState<SizePreset>('4×6');
+  const [customWidth, setCustomWidth] = useState<number>(4);
+  const [customHeight, setCustomHeight] = useState<number>(6);
+  const [orientation, setOrientation] = useState<Orientation>('16:9');
+  const [printingType, setPrintingType] = useState<PrintingType>('Solvent');
+  const [hemmingOption, setHemmingOption] = useState<'Yes' | 'No'>('No');
+  const [designs, setDesigns] = useState<DesignFile[]>([]);
+  const [showUploadSection, setShowUploadSection] = useState(false);
+  const [editingDesignId, setEditingDesignId] = useState<string | null>(null);
+  const [selectedDesignId, setSelectedDesignId] = useState<string | null>(null);
+  
+  const MAX_DESIGNS = 5;
+  
+  // For Flex products only
+  const flexCategories = ['Sunpack Boards', 'Normal Flex', 'Star Flex', 'Flex Banner', 'Vinyl Flex'];
+  const isFlexProduct = flexCategories.some(category => 
+    product.category?.toLowerCase().includes(category.toLowerCase())
+  );
 
-  const width = selectedSize.label === 'Custom' ? customWidth : selectedSize.w;
-  const height = selectedSize.label === 'Custom' ? customHeight : selectedSize.h;
+  // Close on Escape key
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [onClose]);
 
+  const getDimensions = () => {
+    if (selectedSize === 'Custom') {
+      return { width: customWidth, height: customHeight };
+    }
+    const [width, height] = selectedSize.split('×').map(Number);
+    return { width, height };
+  };
+
+  const { width, height } = getDimensions();
   const area = width * height;
-  const finishingCharge = finishing ? 50 : 0;
-  const totalPrice = (area * product.basePricePerSqft) + finishingCharge;
+  const baseTotal = product.basePricePerSqft * area;
+  const hemmingCharge = (isFlexProduct && hemmingOption === 'Yes') ? area * 0.5 : 0;
+  const totalPrice = baseTotal + hemmingCharge;
 
   const handleAddToCart = () => {
-    const cartItem: CartItem = {
-      id: Math.random().toString(36).substr(2, 9),
+    const finalWidth = selectedDesignId 
+      ? designs.find(d => d.id === selectedDesignId)?.width || width
+      : width;
+    const finalHeight = selectedDesignId
+      ? designs.find(d => d.id === selectedDesignId)?.height || height
+      : height;
+    const finalOrientation = selectedDesignId
+      ? designs.find(d => d.id === selectedDesignId)?.orientation || orientation
+      : orientation;
+
+    const cartItem = {
       productId: product.id,
       productName: product.title,
       category: product.category,
       thumbnail: product.thumbnail,
-      width,
-      height,
-      orientation: orientation.name,
-      finishing,
+      width: finalWidth,
+      height: finalHeight,
+      orientation: finalOrientation,
+      printingType: printingType,
+      finishing: isFlexProduct ? hemmingOption === 'Yes' : false,
+      hasDesign: designs.length > 0,
+      designs: designs.map(d => ({ 
+        file: d.file,
+        storageUrl: d.storageUrl,
+        settings: { 
+          width: d.width, 
+          height: d.height, 
+          orientation: d.orientation 
+        }
+      })),
+      selectedDesignId: selectedDesignId,
       quantity: 1,
-      ratePerSqft: product.basePricePerSqft,
-      finishingCharge,
-      totalPrice,
+      totalPrice: totalPrice,
+      hemmingCharge: hemmingCharge,
+      area: area,
+      basePrice: baseTotal
     };
+    
     onAddToCart(cartItem);
+    onClose();
+  };
+
+  const handleAddDesign = () => {
+    if (designs.length >= MAX_DESIGNS) {
+      alert(`Maximum ${MAX_DESIGNS} designs allowed per order`);
+      return;
+    }
+    setEditingDesignId(null);
+    setShowUploadSection(true);
+  };
+
+  const handleEditDesign = (designId: string) => {
+    setEditingDesignId(designId);
+    setShowUploadSection(true);
+  };
+
+  const handleRemoveDesign = (designId: string) => {
+    setDesigns(prev => prev.filter(d => d.id !== designId));
+    if (editingDesignId === designId) {
+      setEditingDesignId(null);
+      setShowUploadSection(false);
+    }
+    if (selectedDesignId === designId) {
+      setSelectedDesignId(null);
+    }
+  };
+
+  const handleSelectDesign = (designId: string) => {
+    const selectedDesign = designs.find(d => d.id === designId);
+    if (selectedDesign && selectedDesignId !== designId) {
+      setSelectedDesignId(designId);
+      setCustomWidth(selectedDesign.width);
+      setCustomHeight(selectedDesign.height);
+      setOrientation(selectedDesign.orientation);
+      const presetSizes = ['2×4', '4×6', '6×8', '8×10'];
+      const matchedPreset = presetSizes.find(preset => {
+        const [w, h] = preset.split('×').map(Number);
+        return w === selectedDesign.width && h === selectedDesign.height;
+      });
+      setSelectedSize(matchedPreset ? matchedPreset as SizePreset : 'Custom');
+    } else if (selectedDesignId === designId) {
+      setSelectedDesignId(null);
+    }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (!auth.currentUser) {
+        toast.error('Please login to upload designs');
+        return;
+      }
+
+      if (file.size > 10 * 1024 * 1024) {
+        toast.error('File size must be less than 10MB');
+        return;
+      }
+      
+      const allowedTypes = ['image/jpeg', 'image/png', 'image/jpg', 'application/pdf', 'application/postscript', 'application/illustrator'];
+      if (!allowedTypes.includes(file.type) && !file.name.match(/\.(ai|eps)$/i)) {
+        toast.error('Please upload JPG, PNG, PDF, AI, or EPS files');
+        return;
+      }
+
+      const designId = editingDesignId || Date.now().toString();
+      const storageRef = ref(storage, `designs/${auth.currentUser.uid}/${Date.now()}_${file.name}`);
+      const uploadTask = uploadBytesResumable(storageRef, file);
+
+      // Create initial design entry
+      const initialDesign: DesignFile = {
+        id: designId,
+        name: file.name,
+        size: file.size,
+        preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined,
+        uploadProgress: 0,
+        width: width,
+        height: height,
+        orientation: orientation,
+      };
+
+      if (editingDesignId) {
+        setDesigns(prev => prev.map(d => d.id === editingDesignId ? initialDesign : d));
+      } else {
+        setDesigns(prev => [...prev, initialDesign]);
+      }
+
+      uploadTask.on('state_changed', 
+        (snapshot) => {
+          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+          setDesigns(prev => prev.map(d => d.id === designId ? { ...d, uploadProgress: progress } : d));
+        }, 
+        (error) => {
+          console.error("Upload error:", error);
+          toast.error("Upload failed: " + error.message);
+          setDesigns(prev => prev.filter(d => d.id !== designId));
+        }, 
+        async () => {
+          const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+          setDesigns(prev => prev.map(d => d.id === designId ? { ...d, storageUrl: downloadURL, uploadProgress: 100 } : d));
+          toast.success("Design uploaded successfully!");
+          setShowUploadSection(false);
+          setEditingDesignId(null);
+        }
+      );
+      
+      const fileInput = document.getElementById('design-upload') as HTMLInputElement;
+      if (fileInput) fileInput.value = '';
+    }
+  };
+
+  const cancelUpload = () => {
+    setShowUploadSection(false);
+    setEditingDesignId(null);
+  };
+
+  const getOrientationIcon = (orientationValue: string) => {
+    switch(orientationValue) {
+      case '1:1': return <Square className="h-5 w-5" />;
+      case '16:9': return <Monitor className="h-5 w-5" />;
+      case '9:16': return <Smartphone className="h-5 w-5" />;
+      case '3:1': return <Film className="h-5 w-5" />;
+      case '1:3': return <LayoutTemplate className="h-5 w-5" />;
+      default: return <Square className="h-5 w-5" />;
+    }
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-brand-navy/60 backdrop-blur-md">
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md"
+      onClick={onClose}
+    >
       <motion.div
-        initial={{ opacity: 0, scale: 0.9, y: 20 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        className="bg-white rounded-[2.5rem] w-full max-w-2xl overflow-hidden shadow-2xl border border-white/20"
+        initial={{ scale: 0.9, opacity: 0, y: 30 }}
+        animate={{ scale: 1, opacity: 1, y: 0 }}
+        exit={{ scale: 0.9, opacity: 0, y: 30 }}
+        transition={{ type: "spring", damping: 25, stiffness: 300 }}
+        onClick={(e) => e.stopPropagation()}
+        className="bg-white rounded-[2rem] max-w-5xl w-full max-h-[90vh] overflow-y-auto shadow-2xl relative"
       >
-        {/* SECTION A: Header */}
-        <div className="px-8 py-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
-          <div>
+        {/* Close button */}
+        <button
+          onClick={onClose}
+          className="absolute top-6 right-6 z-50 p-3 bg-white hover:bg-gray-100 rounded-full shadow-lg transition-all duration-200 hover:scale-110 border border-gray-200"
+          aria-label="Close modal"
+        >
+          <X className="h-5 w-5 text-gray-600" />
+        </button>
+
+        {/* Header */}
+        <div className="sticky top-0 bg-white/95 backdrop-blur-sm border-b border-gray-100 px-8 py-6 z-10 rounded-t-[2rem]">
+          <div className="pr-12">
             <h2 className="text-2xl font-black text-brand-navy tracking-tight">{product.title}</h2>
-            <p className="text-[10px] text-brand-orange font-black uppercase tracking-[0.2em] mt-1">{product.category}</p>
+            <p className="text-xs text-gray-400 font-bold mt-1 uppercase tracking-widest">{product.category}</p>
           </div>
-          <button onClick={onClose} className="p-3 hover:bg-gray-200 rounded-2xl transition-all group">
-            <X className="h-6 w-6 text-gray-400 group-hover:text-brand-navy" />
-          </button>
         </div>
 
-        <div className="p-8 max-h-[80vh] overflow-y-auto custom-scrollbar">
-          <div className="space-y-10">
-            {/* SECTION B: Size Selection */}
-            <section>
-              <label className="text-xs font-black text-brand-navy/40 uppercase tracking-widest mb-4 block">Choose Size</label>
-              <div className="flex flex-wrap gap-3">
-                {PRESET_SIZES.map((size) => (
-                  <button
-                    key={size.label}
-                    onClick={() => setSelectedSize(size)}
-                    className={cn(
-                      "px-6 py-3 rounded-2xl font-bold text-sm transition-all border-2",
-                      selectedSize.label === size.label
-                        ? "bg-brand-navy border-brand-navy text-white shadow-lg shadow-brand-navy/20"
-                        : "bg-white border-gray-100 text-brand-navy hover:border-brand-orange/30"
-                    )}
-                  >
-                    {size.label}
-                  </button>
-                ))}
+        <div className="p-8">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
+            {/* Left Column - Options */}
+            <div className="space-y-8">
+              {/* Printing Type Selection - NEW SECTION */}
+              <div>
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="p-1.5 bg-brand-orange/10 rounded-lg">
+                    <Printer className="h-4 w-4 text-brand-orange" />
+                  </div>
+                  <h3 className="text-sm font-black text-brand-navy uppercase tracking-wider">
+                    Printing Type
+                  </h3>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-3">
+                  {(['Solvent', 'Eco Solvent'] as PrintingType[]).map((type) => (
+                    <button
+                      key={type}
+                      onClick={() => setPrintingType(type)}
+                      className={`
+                        py-3 px-4 rounded-xl font-bold text-sm transition-all duration-200 text-center
+                        ${printingType === type 
+                          ? 'bg-brand-orange text-white shadow-lg shadow-brand-orange/20 scale-105' 
+                          : 'bg-gray-50 text-brand-navy hover:bg-gray-100 border border-gray-100 hover:scale-105'
+                        }
+                      `}
+                    >
+                      <div className="flex items-center justify-center gap-2">
+                        <Printer className="h-4 w-4" />
+                        <span>{type}</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
               </div>
 
-              <AnimatePresence>
-                {selectedSize.label === 'Custom' && (
+              {/* Size Selection */}
+              <div>
+                <h3 className="text-sm font-black text-brand-navy mb-4 uppercase tracking-wider">Choose Size</h3>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
+                  {(['2×4', '4×6', '6×8', '8×10', 'Custom'] as SizePreset[]).map((size) => (
+                    <button
+                      key={size}
+                      onClick={() => setSelectedSize(size)}
+                      className={`
+                        py-3 px-4 rounded-xl font-bold text-sm transition-all duration-200
+                        ${selectedSize === size 
+                          ? 'bg-brand-orange text-white shadow-lg shadow-brand-orange/20 scale-105' 
+                          : 'bg-gray-50 text-brand-navy hover:bg-gray-100 border border-gray-100 hover:scale-105'
+                        }
+                      `}
+                    >
+                      {size === 'Custom' ? 'Custom Size' : size}
+                    </button>
+                  ))}
+                </div>
+                
+                {selectedSize === 'Custom' && (
                   <motion.div
                     initial={{ opacity: 0, height: 0 }}
                     animate={{ opacity: 1, height: 'auto' }}
                     exit={{ opacity: 0, height: 0 }}
-                    className="grid grid-cols-2 gap-4 mt-6"
+                    className="flex gap-4 mt-4"
                   >
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-bold text-gray-400 uppercase ml-2">Width (ft)</label>
+                    <div className="flex-1">
+                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-wider">Width (ft)</label>
                       <input
                         type="number"
+                        min={1}
                         value={customWidth}
                         onChange={(e) => setCustomWidth(Math.max(1, Number(e.target.value)))}
-                        className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl px-5 py-4 font-bold text-brand-navy focus:border-brand-orange focus:ring-0 transition-all outline-none"
+                        className="w-full mt-1 border border-gray-200 rounded-xl px-4 py-2 font-bold focus:border-brand-orange focus:outline-none"
                       />
                     </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-bold text-gray-400 uppercase ml-2">Height (ft)</label>
+                    <div className="flex-1">
+                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-wider">Height (ft)</label>
                       <input
                         type="number"
+                        min={1}
                         value={customHeight}
                         onChange={(e) => setCustomHeight(Math.max(1, Number(e.target.value)))}
-                        className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl px-5 py-4 font-bold text-brand-navy focus:border-brand-orange focus:ring-0 transition-all outline-none"
+                        className="w-full mt-1 border border-gray-200 rounded-xl px-4 py-2 font-bold focus:border-brand-orange focus:outline-none"
                       />
                     </div>
                   </motion.div>
                 )}
-              </AnimatePresence>
-            </section>
-
-            {/* SECTION C: Orientation */}
-            <section>
-              <div className="flex justify-between items-end mb-4">
-                <label className="text-xs font-black text-brand-navy/40 uppercase tracking-widest block">Orientation</label>
-                <div className="flex items-center space-x-2 text-[10px] font-bold text-brand-orange bg-brand-orange/5 px-3 py-1.5 rounded-full">
-                  <Info className="h-3 w-3" />
-                  <span>Visual Preview</span>
-                </div>
-              </div>
-              
-              <div className="flex flex-col md:flex-row gap-8 items-center">
-                <div className="flex flex-wrap gap-2 flex-1">
-                  {ORIENTATIONS.map((opt) => (
-                    <button
-                      key={opt.label}
-                      onClick={() => setOrientation(opt)}
-                      className={cn(
-                        "px-4 py-3 rounded-xl font-bold text-xs transition-all border-2 flex flex-col items-center min-w-[80px]",
-                        orientation.label === opt.label
-                          ? "bg-brand-orange/5 border-brand-orange text-brand-orange"
-                          : "bg-white border-gray-100 text-gray-400 hover:border-gray-200"
-                      )}
-                    >
-                      <span>{opt.label}</span>
-                      <span className="text-[8px] opacity-60 mt-1">{opt.name}</span>
-                    </button>
-                  ))}
-                </div>
-
-                <div className="w-32 h-32 bg-gray-50 rounded-3xl border-2 border-dashed border-gray-200 flex items-center justify-center p-4">
-                  <motion.div
-                    animate={{ 
-                      width: orientation.ratio >= 1 ? '100%' : `${orientation.ratio * 100}%`,
-                      height: orientation.ratio <= 1 ? '100%' : `${(1/orientation.ratio) * 100}%`
-                    }}
-                    className="bg-brand-navy/10 border-2 border-brand-navy/20 rounded-lg shadow-inner"
-                  />
-                </div>
-              </div>
-            </section>
-
-            {/* SECTION D: Finishing Options */}
-            <section>
-              <label className="text-xs font-black text-brand-navy/40 uppercase tracking-widest mb-4 block">Hemming & Eyelets (Corner Finishing)</label>
-              <div className="grid grid-cols-2 gap-4">
-                <button
-                  onClick={() => setFinishing(true)}
-                  className={cn(
-                    "p-5 rounded-3xl border-2 transition-all text-left relative group",
-                    finishing ? "border-brand-orange bg-brand-orange/5" : "border-gray-100 hover:border-gray-200"
-                  )}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className={cn("font-bold text-sm", finishing ? "text-brand-orange" : "text-brand-navy")}>Yes — Hem & Eyelets</span>
-                    {finishing && <CheckCircle2 className="h-5 w-5 text-brand-orange" />}
-                  </div>
-                  <p className="text-[10px] text-gray-400 font-medium leading-relaxed">Metal corner rings + stitched edges</p>
-                  <div className="absolute bottom-4 right-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
-                  </div>
-                </button>
-
-                <button
-                  onClick={() => setFinishing(false)}
-                  className={cn(
-                    "p-5 rounded-3xl border-2 transition-all text-left relative",
-                    !finishing ? "border-brand-navy bg-brand-navy/5" : "border-gray-100 hover:border-gray-200"
-                  )}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className={cn("font-bold text-sm", !finishing ? "text-brand-navy" : "text-brand-navy/60")}>No — Plain Cut</span>
-                    {!finishing && <CheckCircle2 className="h-5 w-5 text-brand-navy" />}
-                  </div>
-                  <p className="text-[10px] text-gray-400 font-medium leading-relaxed">Raw edge cut, no stitching or holes</p>
-                </button>
               </div>
 
-              {finishing && (
-                <motion.div
-                  initial={{ opacity: 0, y: 5 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="mt-4 bg-gray-50 p-4 rounded-2xl flex items-start space-x-3"
-                >
-                  <Info className="h-4 w-4 text-brand-orange mt-0.5 shrink-0" />
-                  <p className="text-[10px] text-gray-500 font-medium leading-relaxed">
-                    Includes stitched hem on all 4 sides + metal eyelets at corners for hanging. Recommended for outdoor banners.
-                  </p>
-                </motion.div>
+              {/* Orientation */}
+              <div>
+                <h3 className="text-sm font-black text-brand-navy mb-4 uppercase tracking-wider">Orientation</h3>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  {[
+                    { value: '1:1', label: 'Square', icon: Square, ratio: '1:1' },
+                    { value: '16:9', label: 'Landscape', icon: Monitor, ratio: '16:9' },
+                    { value: '9:16', label: 'Portrait', icon: Smartphone, ratio: '9:16' },
+                    { value: '3:1', label: 'Wide Banner', icon: Film, ratio: '3:1' },
+                    { value: '1:3', label: 'Tall Banner', icon: LayoutTemplate, ratio: '1:3' },
+                  ].map((opt) => {
+                    const Icon = opt.icon;
+                    return (
+                      <button
+                        key={opt.value}
+                        onClick={() => setOrientation(opt.value as Orientation)}
+                        className={`
+                          p-4 rounded-xl text-center transition-all duration-200
+                          ${orientation === opt.value
+                            ? 'bg-brand-orange text-white shadow-lg shadow-brand-orange/20 scale-105'
+                            : 'bg-gray-50 text-brand-navy hover:bg-gray-100 border border-gray-100 hover:scale-105'
+                          }
+                        `}
+                      >
+                        <div className="flex justify-center mb-2">
+                          <Icon className="h-6 w-6" />
+                        </div>
+                        <div className="font-bold text-xs">{opt.label}</div>
+                        <div className="text-[8px] opacity-70 mt-1">{opt.ratio}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Hemming & Eyelets */}
+              {isFlexProduct && (
+                <div>
+                  <div className="flex items-center gap-2 mb-4">
+                    <div className="p-1.5 bg-brand-orange/10 rounded-lg">
+                      <Scissors className="h-4 w-4 text-brand-orange" />
+                    </div>
+                    <h3 className="text-sm font-black text-brand-navy uppercase tracking-wider">
+                      Hemming & Eyelets (Corner Finishing)
+                    </h3>
+                  </div>
+                  
+                  <div className="space-y-3">
+                    <label className={`
+                      flex items-start p-4 rounded-xl border-2 cursor-pointer transition-all duration-200
+                      ${hemmingOption === 'Yes' 
+                        ? 'border-brand-orange bg-brand-orange/5 shadow-md' 
+                        : 'border-gray-100 hover:border-gray-200 hover:shadow-sm'
+                      }
+                    `}>
+                      <input
+                        type="radio"
+                        name="hemming"
+                        value="Yes"
+                        checked={hemmingOption === 'Yes'}
+                        onChange={(e) => setHemmingOption(e.target.value as 'Yes')}
+                        className="mt-1 w-4 h-4 text-brand-orange focus:ring-brand-orange accent-brand-orange"
+                      />
+                      <div className="ml-3 flex-1">
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                          <span className="font-black text-brand-navy">Yes — Hem & Eyelets</span>
+                          <span className="text-xs text-brand-orange font-bold bg-brand-orange/10 px-2 py-1 rounded-lg">+ ₹0.50/sqft</span>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">
+                          Metal corner rings + stitched edges
+                        </p>
+                      </div>
+                    </label>
+
+                    <label className={`
+                      flex items-start p-4 rounded-xl border-2 cursor-pointer transition-all duration-200
+                      ${hemmingOption === 'No' 
+                        ? 'border-brand-orange bg-brand-orange/5 shadow-md' 
+                        : 'border-gray-100 hover:border-gray-200 hover:shadow-sm'
+                      }
+                    `}>
+                      <input
+                        type="radio"
+                        name="hemming"
+                        value="No"
+                        checked={hemmingOption === 'No'}
+                        onChange={(e) => setHemmingOption(e.target.value as 'No')}
+                        className="mt-1 w-4 h-4 text-brand-orange focus:ring-brand-orange accent-brand-orange"
+                      />
+                      <div className="ml-3 flex-1">
+                        <span className="font-black text-brand-navy">No — Plain Cut</span>
+                        <p className="text-xs text-gray-500 mt-1">
+                          Raw edge cut, no stitching or holes
+                        </p>
+                      </div>
+                    </label>
+                  </div>
+                </div>
               )}
-            </section>
 
-            {/* SECTION E: Price Summary Card */}
-            <section className="bg-brand-orange/5 rounded-[2rem] p-8 border border-brand-orange/10">
-              <div className="space-y-4">
-                <div className="h-px bg-brand-orange/20 my-6" />
-                <div className="flex justify-between items-center">
-                  <span className="text-brand-navy font-black text-lg">Total Price</span>
-                  <div className="flex items-center text-3xl font-black text-brand-orange">
-                    <IndianRupee className="h-6 w-6 mr-1" />
-                    <span>{totalPrice.toFixed(2)}</span>
+              {/* Upload Design Section */}
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-sm font-black text-brand-navy uppercase tracking-wider">Upload Your Designs</h3>
+                  {designs.length > 0 && (
+                    <span className="text-xs font-bold text-brand-orange bg-brand-orange/10 px-2 py-1 rounded-lg">
+                      {designs.length}/{MAX_DESIGNS} Designs
+                    </span>
+                  )}
+                </div>
+                
+                <button
+                  onClick={handleAddDesign}
+                  disabled={designs.length >= MAX_DESIGNS}
+                  className={`
+                    w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-bold text-sm transition-all shadow-md
+                    ${designs.length < MAX_DESIGNS 
+                      ? 'bg-brand-orange text-white hover:bg-brand-navy' 
+                      : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                    }
+                  `}
+                >
+                  <Upload className="h-4 w-4" />
+                  Add Design ({designs.length}/{MAX_DESIGNS})
+                </button>
+
+                <AnimatePresence>
+                  {showUploadSection && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="relative mt-4"
+                    >
+                      <div className="bg-brand-orange/5 rounded-2xl p-4 border-2 border-brand-orange/30">
+                        <div className="flex justify-between items-center mb-3">
+                          <p className="text-xs font-bold text-brand-navy">
+                            {editingDesignId ? 'Replace Design' : 'Upload New Design'}
+                          </p>
+                          <button
+                            onClick={cancelUpload}
+                            className="p-1 hover:bg-gray-200 rounded-lg transition-colors"
+                          >
+                            <XCircle className="h-4 w-4 text-gray-500" />
+                          </button>
+                        </div>
+                        <input
+                          type="file"
+                          id="design-upload"
+                          accept="image/*,.pdf,.ai,.eps"
+                          onChange={handleFileUpload}
+                          className="hidden"
+                        />
+                        <label
+                          htmlFor="design-upload"
+                          className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-brand-orange rounded-xl cursor-pointer hover:bg-brand-orange/10 transition-all group bg-white"
+                        >
+                          <div className="p-3 bg-brand-orange/10 rounded-full mb-3 group-hover:bg-brand-orange/20 transition-colors">
+                            <Upload className="h-6 w-6 text-brand-orange" />
+                          </div>
+                          <p className="font-bold text-brand-navy mb-1">Click to upload your design</p>
+                          <p className="text-[10px] text-gray-400">JPG, PNG, PDF, AI, EPS (Max 10MB)</p>
+                        </label>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {designs.length > 0 && !showUploadSection && (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="mt-4 space-y-3"
+                  >
+                    {designs.map((design) => (
+                      <motion.div
+                        key={design.id}
+                        onClick={() => handleSelectDesign(design.id)}
+                        className={`
+                          p-4 rounded-xl border-2 transition-all cursor-pointer
+                          ${selectedDesignId === design.id 
+                            ? 'border-brand-orange bg-brand-orange/5 shadow-md' 
+                            : 'border-gray-200 bg-gray-50 hover:shadow-md'
+                          }
+                        `}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-white rounded-xl shadow-sm">
+                            {design.preview ? (
+                              <img src={design.preview} alt={design.name} className="h-10 w-10 object-cover rounded" />
+                            ) : (
+                              <FileImage className="h-6 w-6 text-brand-orange" />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-bold text-brand-navy text-sm truncate">{design.name}</p>
+                            <div className="flex items-center gap-2">
+                              <p className="text-[10px] text-gray-500">
+                                {(design.size / 1024).toFixed(1)} KB • {design.width}×{design.height} ft
+                              </p>
+                              {design.uploadProgress !== undefined && design.uploadProgress < 100 && (
+                                <div className="flex items-center gap-1">
+                                  <Loader2 className="h-2 w-2 animate-spin text-brand-orange" />
+                                  <span className="text-[8px] font-black text-brand-orange">{Math.round(design.uploadProgress)}%</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              onClick={() => handleEditDesign(design.id)}
+                              className="p-2 bg-white rounded-lg hover:bg-blue-50 transition-colors"
+                            >
+                              <Edit className="h-4 w-4 text-gray-500" />
+                            </button>
+                            <button
+                              onClick={() => handleRemoveDesign(design.id)}
+                              className="p-2 bg-white rounded-lg hover:bg-red-50 transition-colors"
+                            >
+                              <Trash2 className="h-4 w-4 text-gray-500" />
+                            </button>
+                          </div>
+                        </div>
+                      </motion.div>
+                    ))}
+                  </motion.div>
+                )}
+              </div>
+            </div>
+
+            {/* Right Column - Preview & Total */}
+            <div>
+              <div className="sticky top-8">
+                {/* Visual Preview */}
+                <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-2xl p-6 mb-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-sm font-black text-brand-navy uppercase tracking-wider">Visual Preview</h3>
+                    <Eye className="h-4 w-4 text-gray-400" />
+                  </div>
+                  
+                  <div 
+                    className="bg-white rounded-xl shadow-md mx-auto flex items-center justify-center overflow-hidden border border-gray-200"
+                    style={{
+                      width: '100%',
+                      aspectRatio: width && height ? `${width}/${height}` : '16/9',
+                      maxHeight: '200px'
+                    }}
+                  >
+                    <div className="text-center p-4">
+                      <div className="flex justify-center mb-3">
+                        {getOrientationIcon(orientation)}
+                      </div>
+                      <p className="text-xs font-bold text-gray-500">
+                        {width} × {height} ft
+                      </p>
+                      <p className="text-[10px] text-gray-400 mt-1">
+                        {orientation}
+                      </p>
+                    </div>
+                  </div>
+                  
+                  <div className="mt-4 text-center">
+                    <p className="text-[10px] text-gray-400 font-medium">
+                      Preview is for reference only. Final output may vary.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Price Summary */}
+                <div className="bg-brand-navy rounded-2xl p-6 text-white">
+                  <h3 className="text-sm font-black mb-4 uppercase tracking-wider opacity-60">Price Summary</h3>
+                  
+                  <div className="space-y-3 mb-6">
+                    <div className="flex justify-between text-sm">
+                      <span className="opacity-60">Printing Type:</span>
+                      <span className="font-bold">{printingType}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="opacity-60">Dimensions:</span>
+                      <span className="font-bold">{width} × {height} ft</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="opacity-60">Total Area:</span>
+                      <span className="font-bold">{area} sq ft</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="opacity-60">Base Rate:</span>
+                      <span className="font-bold">₹{product.basePricePerSqft}/sqft</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="opacity-60">Base Price:</span>
+                      <span className="font-bold">₹{baseTotal.toFixed(2)}</span>
+                    </div>
+                    
+                    {isFlexProduct && hemmingOption === 'Yes' && (
+                      <div className="flex justify-between text-sm">
+                        <span className="opacity-60">Hemming & Eyelets:</span>
+                        <span className="font-bold text-brand-orange">+₹{hemmingCharge.toFixed(2)}</span>
+                      </div>
+                    )}
+                    
+                    <div className="h-px bg-white/10 my-2" />
+                    
+                    <div className="flex justify-between items-center pt-2">
+                      <span className="text-lg font-black">Total Price</span>
+                      <div className="flex items-center text-2xl font-black text-brand-orange">
+                        <IndianRupee className="h-5 w-5 mr-1" />
+                        <span>{totalPrice.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={handleAddToCart}
+                    className="w-full bg-brand-orange text-white py-4 rounded-xl font-black text-lg hover:bg-white hover:text-brand-navy transition-all shadow-lg shadow-brand-orange/20 hover:shadow-xl"
+                  >
+                    Add to Cart
+                  </button>
+                  
+                  <div className="mt-4 text-center">
+                    <p className="text-[10px] opacity-40">
+                      GST (18%) will be calculated at checkout
+                    </p>
+                    {designs.length > 0 && (
+                      <p className="text-[10px] text-green-400 mt-2">
+                        {designs.length} {designs.length === 1 ? 'design' : 'designs'} attached
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
-            </section>
-
-            {/* SECTION F: Action Buttons */}
-            <div className="space-y-4 pt-4">
-              <button
-                onClick={handleAddToCart}
-                className="w-full bg-brand-navy text-white py-5 rounded-2xl font-black text-lg hover:bg-brand-orange transition-all shadow-xl shadow-brand-navy/20 hover:shadow-brand-orange/20 flex items-center justify-center space-x-3"
-              >
-                <ShoppingCart className="h-5 w-5" />
-                <span>Add to Cart</span>
-              </button>
-              <button
-                className="w-full bg-white text-brand-orange border-2 border-brand-orange py-4 rounded-2xl font-black text-sm hover:bg-brand-orange hover:text-white transition-all"
-              >
-                Request Custom Quote
-              </button>
             </div>
           </div>
         </div>
       </motion.div>
-    </div>
+    </motion.div>
   );
 }

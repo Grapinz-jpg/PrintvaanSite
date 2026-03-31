@@ -20,10 +20,15 @@ interface CartPageProps {
 type DeliveryMethod = 'Home Delivery' | 'Shop Pickup';
 type PaymentMethod = 'UPI / QR Code' | 'Net Banking' | 'Credit / Debit Card' | 'Pay on Pickup';
 
+import { useNavigate } from 'react-router-dom';
+import { auth } from '../firebase';
+import { toast } from 'sonner';
+
 export default function CartPage({ cart, setCart, onPlaceOrder }: CartPageProps) {
   const [deliveryMethod, setDeliveryMethod] = useState<DeliveryMethod>('Home Delivery');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | ''>('');
   const [isPlacingOrder, setIsPlacingOrder] = useState(false);
+  const navigate = useNavigate();
   
   // Home Delivery fields
   const [address, setAddress] = useState({
@@ -138,6 +143,18 @@ export default function CartPage({ cart, setCart, onPlaceOrder }: CartPageProps)
 
   const handlePlaceOrderClick = async () => {
     if (!isOrderEnabled) return;
+
+    if (!auth.currentUser) {
+      navigate('/login');
+      toast.error('Please login to place an order.');
+      return;
+    }
+
+    if (!auth.currentUser.emailVerified) {
+      navigate('/login');
+      toast.error('Please verify your email to place an order.');
+      return;
+    }
     
     setIsPlacingOrder(true);
     

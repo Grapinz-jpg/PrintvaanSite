@@ -36,18 +36,39 @@ interface OrdersPageProps {
   customOrders?: Order[];
 }
 
+import { useNavigate } from 'react-router-dom';
+import { auth } from '../firebase';
+import { onAuthStateChanged } from 'firebase/auth';
+import { toast } from 'sonner';
+
 export default function OrdersPage({ customOrders = [] }: OrdersPageProps) {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
 
   useEffect(() => {
-    getOrders().then((data) => {
-      // Merge mock orders with custom orders from state
-      const merged = [...customOrders, ...data];
-      setOrders(merged);
-      setLoading(false);
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      if (!user) {
+        navigate('/login');
+        return;
+      }
+
+      if (!user.emailVerified) {
+        navigate('/login');
+        toast.error('Please verify your email to access your orders.');
+        return;
+      }
+
+      getOrders().then((data) => {
+        // Merge mock orders with custom orders from state
+        const merged = [...customOrders, ...data];
+        setOrders(merged);
+        setLoading(false);
+      });
     });
-  }, [customOrders]);
+
+    return () => unsubscribeAuth();
+  }, [customOrders, navigate]);
 
   if (loading) {
     return (

@@ -1,30 +1,39 @@
 import React, { useState, useEffect } from 'react';
-import { ShoppingCart, User, Menu, X, LogIn, Package } from 'lucide-react';
+import { ShoppingCart, User, Menu, X, LogIn, Package, FileUp, LogOut } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Link, useLocation } from 'react-router-dom';
-import { getCurrentUser, login, logout } from '../services/db';
-import { User as UserType } from '../types';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { auth, googleProvider } from '../firebase';
+import { signInWithPopup, signOut, onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
+import { toast } from 'sonner';
 
 interface NavbarProps {
   cartCount: number;
 }
 
 export default function Navbar({ cartCount }: NavbarProps) {
-  const [user, setUser] = useState<UserType | null>(null);
+  const [user, setUser] = useState<FirebaseUser | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
 
   useEffect(() => {
-    getCurrentUser().then(setUser);
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+    });
+    return () => unsubscribe();
   }, []);
 
-  const handleAuth = async () => {
-    if (user) {
-      await logout();
-      setUser(null);
-    } else {
-      const loggedInUser = await login();
-      setUser(loggedInUser);
+  const handleLogin = () => {
+    navigate('/login');
+  };
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      toast.success('Logged out successfully!');
+      navigate('/');
+    } catch (error: any) {
+      toast.error('Logout failed: ' + error.message);
     }
   };
 
@@ -60,9 +69,16 @@ export default function Navbar({ cartCount }: NavbarProps) {
 
           {/* User Actions */}
           <div className="hidden md:flex items-center space-x-5">
+            {user && (
+              <Link to="/files" className="p-2 text-brand-navy/70 hover:text-brand-orange transition-colors relative group">
+                <FileUp className="h-6 w-6" />
+                <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-brand-navy text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap font-bold">My Files</span>
+              </Link>
+            )}
+
             <Link to="/orders" className="p-2 text-brand-navy/70 hover:text-brand-orange transition-colors relative group">
               <Package className="h-6 w-6" />
-              <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-brand-navy text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">My Orders</span>
+              <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-brand-navy text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap font-bold">My Orders</span>
             </Link>
 
             <Link to="/cart" className="relative cursor-pointer group p-2">
@@ -74,22 +90,23 @@ export default function Navbar({ cartCount }: NavbarProps) {
               )}
             </Link>
 
-            <button
-              onClick={handleAuth}
-              className="flex items-center space-x-2 bg-gray-50 hover:bg-gray-100 text-brand-navy px-4 py-2 rounded-full border border-gray-200 transition-all"
-            >
-              {user ? (
-                <>
-                  <img src={user.avatar} alt={user.name} className="h-6 w-6 rounded-full" />
-                  <span className="text-sm font-bold">{user.name}</span>
-                </>
-              ) : (
-                <>
-                  <LogIn className="h-4 w-4" />
-                  <span className="text-sm font-bold">Login</span>
-                </>
-              )}
-            </button>
+            {user ? (
+              <div className="flex items-center space-x-3">
+                <div className="flex flex-col items-end">
+                  <span className="text-xs font-black tracking-tighter text-brand-navy leading-none">{user.displayName}</span>
+                  <button onClick={handleLogout} className="text-[10px] font-bold text-gray-400 hover:text-brand-orange uppercase tracking-widest mt-1">Logout</button>
+                </div>
+                <img src={user.photoURL || ''} alt={user.displayName || 'User'} className="h-10 w-10 rounded-2xl border-2 border-white shadow-sm object-cover" />
+              </div>
+            ) : (
+              <button
+                onClick={handleLogin}
+                className="flex items-center space-x-2 bg-brand-navy text-white px-6 py-2.5 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-brand-orange transition-all shadow-lg shadow-brand-navy/10"
+              >
+                <LogIn className="h-4 w-4" />
+                <span>Login</span>
+              </button>
+            )}
           </div>
 
           {/* Mobile menu button */}
@@ -140,25 +157,35 @@ export default function Navbar({ cartCount }: NavbarProps) {
                 My Orders
               </Link>
               <div className="pt-4">
-                <button
-                  onClick={handleAuth}
-                  className="w-full text-left px-4 py-4 text-base font-bold text-brand-navy bg-gray-50 hover:bg-gray-100 rounded-2xl flex items-center justify-between transition-all"
-                >
-                  <div className="flex items-center space-x-3">
-                    {user ? (
-                      <>
-                        <img src={user.avatar} alt={user.name} className="h-8 w-8 rounded-full" />
-                        <span>{user.name}</span>
-                      </>
-                    ) : (
-                      <>
-                        <LogIn className="h-5 w-5" />
-                        <span>Login</span>
-                      </>
-                    )}
+                {user ? (
+                  <div className="space-y-2">
+                    <Link
+                      to="/files"
+                      className="block px-3 py-3 text-base font-bold text-brand-navy/70 hover:text-brand-orange hover:bg-gray-50 rounded-xl transition-all"
+                      onClick={() => setIsMenuOpen(false)}
+                    >
+                      My Files
+                    </Link>
+                    <button
+                      onClick={handleLogout}
+                      className="w-full text-left px-4 py-4 text-base font-bold text-brand-navy bg-gray-50 hover:bg-gray-100 rounded-2xl flex items-center justify-between transition-all"
+                    >
+                      <div className="flex items-center space-x-3">
+                        <img src={user.photoURL || ''} alt={user.displayName || 'User'} className="h-8 w-8 rounded-full" />
+                        <span>{user.displayName}</span>
+                      </div>
+                      <span className="text-xs text-gray-400 font-medium">Logout</span>
+                    </button>
                   </div>
-                  {user && <span className="text-xs text-gray-400 font-medium">Logout</span>}
-                </button>
+                ) : (
+                  <button
+                    onClick={handleLogin}
+                    className="w-full text-left px-4 py-4 text-base font-bold text-white bg-brand-navy hover:bg-brand-orange rounded-2xl flex items-center space-x-3 transition-all"
+                  >
+                    <LogIn className="h-5 w-5" />
+                    <span>Login</span>
+                  </button>
+                )}
               </div>
             </div>
           </motion.div>

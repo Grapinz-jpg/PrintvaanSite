@@ -21,6 +21,15 @@ export interface User {
   avatar?: string;
 }
 
+export interface UploadedFile {
+  id: string;
+  uid: string;
+  fileName: string;
+  fileUrl: string;
+  fileType: string;
+  uploadedAt: string;
+}
+
 export type OrderStatus = 'Pending' | 'Processing' | 'Printing' | 'Ready for Pickup' | 'Delivered' | 'Cancelled';
 
 export interface CartItem {
