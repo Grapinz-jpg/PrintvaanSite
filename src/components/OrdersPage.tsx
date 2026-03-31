@@ -1,12 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Package, Calendar, ArrowRight, IndianRupee, CheckCircle2, Clock, Printer, Truck, XCircle, AlertCircle } from 'lucide-react';
+import { Package, Calendar, ArrowRight, IndianRupee, CheckCircle2, Clock, Printer, Truck, XCircle, AlertCircle, Edit3, Loader2 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Order, OrderStatus } from '../types';
-import { getOrders } from '../services/db';
 import Breadcrumbs from './Breadcrumbs';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { isUserAdmin } from '../lib/adminConfig';
+import { db, auth } from '../firebase';
+import { collection, query, onSnapshot, doc, updateDoc, where, orderBy } from 'firebase/firestore';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -20,6 +22,9 @@ export const StatusBadge = ({ status }: { status: OrderStatus }) => {
     'Ready for Pickup': { color: 'bg-emerald-100 text-emerald-700 border-emerald-200', icon: Truck },
     'Delivered': { color: 'bg-green-100 text-green-700 border-green-200', icon: CheckCircle2 },
     'Cancelled': { color: 'bg-red-100 text-red-700 border-red-200', icon: XCircle },
+    'Preparing': { color: 'bg-indigo-100 text-indigo-700 border-indigo-200', icon: Loader2 },
+    'Out for Delivery': { color: 'bg-purple-100 text-purple-700 border-purple-200', icon: Truck },
+    'Out of Stock': { color: 'bg-gray-100 text-gray-700 border-gray-200', icon: AlertCircle },
   };
 
   const { color, icon: Icon } = config[status];
@@ -32,18 +37,15 @@ export const StatusBadge = ({ status }: { status: OrderStatus }) => {
   );
 };
 
-interface OrdersPageProps {
-  customOrders?: Order[];
-}
-
 import { useNavigate } from 'react-router-dom';
-import { auth } from '../firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { toast } from 'sonner';
 
-export default function OrdersPage({ customOrders = [] }: OrdersPageProps) {
+export default function OrdersPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -59,16 +61,52 @@ export default function OrdersPage({ customOrders = [] }: OrdersPageProps) {
         return;
       }
 
-      getOrders().then((data) => {
-        // Merge mock orders with custom orders from state
-        const merged = [...customOrders, ...data];
-        setOrders(merged);
+      const adminStatus = isUserAdmin(user.email);
+      setIsAdmin(adminStatus);
+
+      const ordersRef = collection(db, 'orders');
+      let q;
+      
+      if (adminStatus) {
+        // Admin sees all orders
+        q = query(ordersRef, orderBy('date', 'desc'));
+      } else {
+        // Regular user sees only their orders
+        q = query(ordersRef, where('customerInfo.email', '==', user.email), orderBy('date', 'desc'));
+      }
+
+      const unsubscribeOrders = onSnapshot(q, (snapshot) => {
+        const ordersData = snapshot.docs.map(doc => ({
+          ...doc.data(),
+          id: doc.id
+        })) as Order[];
+        setOrders(ordersData);
+        setLoading(false);
+      }, (error) => {
+        console.error("Error fetching orders:", error);
+        toast.error("Failed to load orders.");
         setLoading(false);
       });
+
+      return () => unsubscribeOrders();
     });
 
     return () => unsubscribeAuth();
-  }, [customOrders, navigate]);
+  }, [navigate]);
+
+  const handleStatusChange = async (orderId: string, newStatus: OrderStatus) => {
+    setUpdatingId(orderId);
+    try {
+      const orderRef = doc(db, 'orders', orderId);
+      await updateDoc(orderRef, { status: newStatus });
+      toast.success(`Order status updated to ${newStatus}`);
+    } catch (error) {
+      console.error("Error updating status:", error);
+      toast.error("Failed to update status.");
+    } finally {
+      setUpdatingId(null);
+    }
+  };
 
   if (loading) {
     return (
@@ -107,6 +145,31 @@ export default function OrdersPage({ customOrders = [] }: OrdersPageProps) {
                 <div className="flex flex-wrap items-center gap-4">
                   <span className="text-xl font-black text-brand-navy tracking-tight">Order #{order.id}</span>
                   <StatusBadge status={order.status} />
+                  
+                  {isAdmin && (
+                    <div className="flex items-center gap-2 ml-auto">
+                      <Edit3 className="h-4 w-4 text-gray-400" />
+                      <select
+                        value={order.status}
+                        onChange={(e) => handleStatusChange(order.id, e.target.value as OrderStatus)}
+                        disabled={updatingId === order.id}
+                        className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 text-[10px] font-black uppercase tracking-widest focus:outline-none focus:border-brand-orange disabled:opacity-50"
+                      >
+                        <option value="Pending">Pending</option>
+                        <option value="Processing">Processing</option>
+                        <option value="Printing">Printing</option>
+                        <option value="Preparing">Preparing</option>
+                        <option value="Out for Delivery">Out for Delivery</option>
+                        <option value="Ready for Pickup">Ready for Pickup</option>
+                        <option value="Delivered">Delivered</option>
+                        <option value="Cancelled">Cancelled</option>
+                        <option value="Out of Stock">Out of Stock</option>
+                      </select>
+                      {updatingId === order.id && (
+                        <Loader2 className="h-4 w-4 text-brand-orange animate-spin" />
+                      )}
+                    </div>
+                  )}
                 </div>
                 
                 <div className="flex items-center text-gray-400 text-xs font-bold uppercase tracking-widest">

@@ -30,7 +30,7 @@ export interface UploadedFile {
   uploadedAt: string;
 }
 
-export type OrderStatus = 'Pending' | 'Processing' | 'Printing' | 'Ready for Pickup' | 'Delivered' | 'Cancelled';
+export type OrderStatus = 'Pending' | 'Processing' | 'Printing' | 'Ready for Pickup' | 'Delivered' | 'Cancelled' | 'Preparing' | 'Out for Delivery' | 'Out of Stock';
 
 export interface CartItem {
   id: string;

@@ -14,8 +14,9 @@ import { getProducts } from './services/db';
 import { Product, Slide, CartItem, Order } from './types';
 import { motion, AnimatePresence } from 'motion/react';
 import { Toaster, toast } from 'sonner';
-import { auth } from './firebase';
+import { auth, db } from './firebase';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 
 const heroSlides: Slide[] = [
   {
@@ -121,7 +122,6 @@ function AppContent() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
   const [cart, setCart] = useState<CartItem[]>([]);
-  const [orders, setOrders] = useState<Order[]>([]);
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const navigate = useNavigate();
@@ -154,25 +154,31 @@ function AppContent() {
     });
   };
 
-  const handlePlaceOrder = (orderData: any) => {
-    const newOrder: Order = {
-      id: `PV-${new Date().getFullYear()}-${String(orders.length + 4).padStart(3, '0')}`,
-      date: new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
-      items: [...cart],
-      subtotal: orderData.subtotal,
-      grandTotal: orderData.grandTotal,
-      gst: orderData.gst,
-      status: 'Pending',
-      paymentMethod: orderData.paymentMethod,
-      customerInfo: orderData.customerInfo,
-    };
+  const handlePlaceOrder = async (orderData: any) => {
+    try {
+      const newOrder = {
+        date: new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
+        items: cart.map(item => ({ ...item })),
+        subtotal: orderData.subtotal,
+        grandTotal: orderData.grandTotal,
+        gst: orderData.gst,
+        status: 'Pending',
+        paymentMethod: orderData.paymentMethod,
+        customerInfo: orderData.customerInfo,
+        createdAt: serverTimestamp(),
+      };
 
-    setOrders((prev) => [newOrder, ...prev]);
-    setCart([]);
-    toast.success('✅ Order Placed!', {
-      className: 'bg-brand-navy text-white border-none rounded-2xl font-black text-sm',
-    });
-    navigate('/orders');
+      await addDoc(collection(db, 'orders'), newOrder);
+      
+      setCart([]);
+      toast.success('✅ Order Placed!', {
+        className: 'bg-brand-navy text-white border-none rounded-2xl font-black text-sm',
+      });
+      navigate('/orders');
+    } catch (error) {
+      console.error("Error placing order:", error);
+      toast.error("Failed to place order. Please try again.");
+    }
   };
 
   return (
@@ -199,8 +205,8 @@ function AppContent() {
           } />
           <Route path="/files" element={<FilesPage />} />
           <Route path="/login" element={<AuthPage />} />
-          <Route path="/orders" element={<OrdersPage customOrders={orders} />} />
-          <Route path="/orders/:id" element={<OrderDetailPage customOrders={orders} />} />
+          <Route path="/orders" element={<OrdersPage />} />
+          <Route path="/orders/:id" element={<OrderDetailPage />} />
         </Routes>
       </main>
 

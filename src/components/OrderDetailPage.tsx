@@ -3,7 +3,6 @@ import { useParams, Link } from 'react-router-dom';
 import { Download, RefreshCw, XCircle, IndianRupee, Package, Calendar, MapPin, Phone, User, CheckCircle2, HandCoins, CreditCard, Mail, Loader2 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Order, OrderStatus } from '../types';
-import { getOrderById } from '../services/db';
 import Breadcrumbs from './Breadcrumbs';
 import { StatusBadge } from './OrdersPage';
 import { clsx, type ClassValue } from 'clsx';
@@ -12,18 +11,16 @@ import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import InvoiceTemplate from './InvoiceTemplate';
 import { toast } from 'sonner';
+import { db } from '../firebase';
+import { doc, onSnapshot } from 'firebase/firestore';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-const STEPS: OrderStatus[] = ['Pending', 'Processing', 'Printing', 'Ready for Pickup', 'Delivered'];
+const STEPS: OrderStatus[] = ['Pending', 'Processing', 'Printing', 'Preparing', 'Out for Delivery', 'Ready for Pickup', 'Delivered'];
 
-interface OrderDetailPageProps {
-  customOrders?: Order[];
-}
-
-export default function OrderDetailPage({ customOrders = [] }: OrderDetailPageProps) {
+export default function OrderDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
@@ -32,19 +29,23 @@ export default function OrderDetailPage({ customOrders = [] }: OrderDetailPagePr
 
   useEffect(() => {
     if (id) {
-      // Check custom orders first
-      const customOrder = customOrders.find(o => o.id === id);
-      if (customOrder) {
-        setOrder(customOrder);
+      const orderRef = doc(db, 'orders', id);
+      const unsubscribe = onSnapshot(orderRef, (snapshot) => {
+        if (snapshot.exists()) {
+          setOrder({ ...snapshot.data(), id: snapshot.id } as Order);
+        } else {
+          setOrder(null);
+        }
         setLoading(false);
-      } else {
-        getOrderById(id).then((data) => {
-          setOrder(data || null);
-          setLoading(false);
-        });
-      }
+      }, (error) => {
+        console.error("Error fetching order details:", error);
+        toast.error("Failed to load order details.");
+        setLoading(false);
+      });
+
+      return () => unsubscribe();
     }
-  }, [id, customOrders]);
+  }, [id]);
 
   const handleDownloadInvoice = async () => {
     if (!order || !invoiceRef.current) return;

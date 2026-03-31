@@ -1,40 +1,77 @@
 {
   "entities": {
-    "UserProfile": {
-      "title": "User Profile",
-      "description": "Information about the user",
+    "Order": {
+      "title": "Order",
+      "description": "Represents a customer order for printing services.",
       "type": "object",
       "properties": {
-        "uid": { "type": "string" },
-        "displayName": { "type": "string" },
-        "email": { "type": "string" },
-        "photoURL": { "type": "string" },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "id": { "type": "string", "description": "Unique identifier for the order." },
+        "date": { "type": "string", "description": "Date and time when the order was placed." },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "productId": { "type": "string" },
+              "productName": { "type": "string" },
+              "category": { "type": "string" },
+              "thumbnail": { "type": "string" },
+              "width": { "type": "number" },
+              "height": { "type": "number" },
+              "orientation": { "type": "string" },
+              "finishing": { "type": "boolean" },
+              "quantity": { "type": "number" },
+              "ratePerSqft": { "type": "number" },
+              "finishingCharge": { "type": "number" },
+              "totalPrice": { "type": "number" }
+            }
+          }
+        },
+        "subtotal": { "type": "number" },
+        "grandTotal": { "type": "number" },
+        "gst": { "type": "number" },
+        "status": {
+          "type": "string",
+          "enum": ["Pending", "Processing", "Printing", "Preparing", "Out for Delivery", "Ready for Pickup", "Delivered", "Cancelled", "Out of Stock"]
+        },
+        "paymentMethod": { "type": "string" },
+        "customerInfo": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" },
+            "email": { "type": "string" },
+            "phone": { "type": "string" },
+            "addressLine1": { "type": "string" },
+            "addressLine2": { "type": "string" },
+            "city": { "type": "string" },
+            "state": { "type": "string" },
+            "pinCode": { "type": "string" },
+            "isPickup": { "type": "boolean" }
+          }
+        }
       },
-      "required": ["uid", "email"]
+      "required": ["date", "items", "subtotal", "grandTotal", "status", "customerInfo"]
     },
-    "UploadedFile": {
-      "title": "Uploaded File",
-      "description": "Metadata for files uploaded to Storage",
+    "User": {
+      "title": "User",
+      "description": "Represents a user profile with roles and permissions.",
       "type": "object",
       "properties": {
-        "uid": { "type": "string" },
-        "fileName": { "type": "string" },
-        "fileUrl": { "type": "string" },
-        "fileType": { "type": "string" },
-        "uploadedAt": { "type": "string", "format": "date-time" }
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "user"] }
       },
-      "required": ["uid", "fileName", "fileUrl"]
+      "required": ["email", "role"]
     }
   },
   "firestore": {
-    "/users/{userId}": {
-      "schema": "UserProfile",
-      "description": "Collection of user profiles"
+    "/orders/{orderId}": {
+      "schema": "Order",
+      "description": "Collection of all customer orders."
     },
-    "/files/{fileId}": {
-      "schema": "UploadedFile",
-      "description": "Collection of uploaded file metadata"
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Collection of user profiles and roles."
     }
   }
 }
