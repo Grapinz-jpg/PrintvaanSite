@@ -47,7 +47,7 @@ export default function ProductCard({ product, onViewPricing }: ProductCardProps
             onClick={() => onViewPricing(product)}
             className="bg-gray-50 hover:bg-brand-orange text-brand-navy hover:text-white p-4 rounded-2xl transition-all duration-300 hover:scale-110 group/btn shadow-sm"
           >
-            <Eye className="h-5 w-5 transition-transform group-hover/btn:rotate-12" />
+            View
           </button>
         </div>
       </div>
