@@ -1,0 +1,47 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Represents a user profile with personal details and roles.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "address": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "user"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "name", "email", "role"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Represents a customer order for printing services.",
+      "type": "object",
+      "properties": {
+        "orderId": { "type": "string" },
+        "userId": { "type": "string" },
+        "items": { "type": "array" },
+        "totalPrice": { "type": "number" },
+        "status": {
+          "type": "string",
+          "enum": ["Preparing", "Out for Delivery", "Delivered", "Out of Stock"]
+        },
+        "paymentStatus": { "type": "string", "enum": ["Pending", "Paid", "Failed"] },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["orderId", "userId", "items", "totalPrice", "status", "paymentStatus", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Collection of user profiles and roles."
+    },
+    "/orders/{orderId}": {
+      "schema": "Order",
+      "description": "Collection of all customer orders."
+    }
+  }
+}

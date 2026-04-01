@@ -1,0 +1,52 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // PrintVaan Security Rules
+    // ===============================================================
+    // Users can only see their own data, but the admin can see everything.
+    // Admin is defined as 'learn.grapinz@gmail.com'.
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        (request.auth.token.email == "learn.grapinz@gmail.com" && isEmailVerified()) ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+      );
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isOrderOwner(orderData) {
+      return isAuthenticated() && request.auth.uid == orderData.userId;
+    }
+
+    // Rules for 'users' collection
+    match /users/{userId} {
+      allow read: if isAuthenticated() && (isOwner(userId) || isAdmin());
+      allow create: if isAuthenticated() && isOwner(userId);
+      allow update: if isAuthenticated() && (isOwner(userId) || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    // Rules for 'orders' collection
+    match /orders/{orderId} {
+      allow read: if isAuthenticated() && (isOrderOwner(resource.data) || isAdmin());
+      allow create: if isAuthenticated() && isOrderOwner(request.resource.data);
+      allow update: if isAuthenticated() && (isOrderOwner(resource.data) || isAdmin());
+      allow delete: if isAdmin();
+    }
+  }
+}
