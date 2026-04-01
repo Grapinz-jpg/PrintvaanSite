@@ -44,15 +44,20 @@ export const mockProducts: Product[] = [
 ];
 
 export const mockUser: User | null = {
-  id: 'user123',
+  uid: 'user123',
   name: 'John',
   email: 'john@printvaan.com',
-  avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=John',
+  phone: '+91 98765 43210',
+  address: '123, Print Street, Mumbai, Maharashtra, 400001',
+  role: 'user',
+  createdAt: new Date().toISOString(),
 };
 
 export const mockOrders: Order[] = [
   {
     id: 'PV-2024-001',
+    orderId: 'PV-2024-001',
+    userId: 'user123',
     date: '15 Jan 2025, 3:42 PM',
     items: [
       {
@@ -64,6 +69,8 @@ export const mockOrders: Order[] = [
         width: 10,
         height: 4,
         orientation: '16:9',
+        inkType: 'Solvent',
+        highlightRequired: 'Yes',
         finishing: true,
         quantity: 1,
         ratePerSqft: 18,
@@ -71,10 +78,13 @@ export const mockOrders: Order[] = [
         totalPrice: 770,
       }
     ],
+    totalPrice: 908.60,
     subtotal: 770,
     gst: 138.60,
     grandTotal: 908.60,
     status: 'Delivered',
+    paymentStatus: 'Paid',
+    timestamp: new Date('2025-01-15T15:42:00').toISOString(),
     paymentMethod: 'UPI / QR Code',
     customerInfo: {
       name: 'John',
@@ -89,6 +99,8 @@ export const mockOrders: Order[] = [
   },
   {
     id: 'PV-2024-002',
+    orderId: 'PV-2024-002',
+    userId: 'user123',
     date: '16 Jan 2025, 11:20 AM',
     items: [
       {
@@ -100,6 +112,8 @@ export const mockOrders: Order[] = [
         width: 3,
         height: 2,
         orientation: '1:1',
+        inkType: 'Solvent',
+        highlightRequired: 'No',
         finishing: false,
         quantity: 1,
         ratePerSqft: 35,
@@ -107,10 +121,13 @@ export const mockOrders: Order[] = [
         totalPrice: 210,
       }
     ],
+    totalPrice: 247.80,
     subtotal: 210,
     gst: 37.80,
     grandTotal: 247.80,
     status: 'Printing',
+    paymentStatus: 'Paid',
+    timestamp: new Date('2025-01-16T11:20:00').toISOString(),
     paymentMethod: 'Net Banking',
     customerInfo: {
       name: 'John',
@@ -125,6 +142,8 @@ export const mockOrders: Order[] = [
   },
   {
     id: 'PV-2024-003',
+    orderId: 'PV-2024-003',
+    userId: 'user123',
     date: '17 Jan 2025, 09:15 AM',
     items: [
       {
@@ -136,6 +155,8 @@ export const mockOrders: Order[] = [
         width: 8,
         height: 6,
         orientation: '16:9',
+        inkType: 'Solvent',
+        highlightRequired: 'No',
         finishing: false,
         quantity: 1,
         ratePerSqft: 15,
@@ -151,6 +172,8 @@ export const mockOrders: Order[] = [
         width: 4,
         height: 2,
         orientation: '16:9',
+        inkType: 'Solvent',
+        highlightRequired: 'No',
         finishing: false,
         quantity: 1,
         ratePerSqft: 28,
@@ -158,10 +181,13 @@ export const mockOrders: Order[] = [
         totalPrice: 224,
       }
     ],
+    totalPrice: 1113.92,
     subtotal: 944,
     gst: 169.92,
     grandTotal: 1113.92,
     status: 'Pending',
+    paymentStatus: 'Pending',
+    timestamp: new Date('2025-01-17T09:15:00').toISOString(),
     paymentMethod: 'Pay on Pickup',
     customerInfo: {
       name: 'John',

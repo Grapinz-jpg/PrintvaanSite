@@ -14,12 +14,26 @@ export interface Slide {
   category: string;
 }
 
-export interface User {
+export interface CartItem {
   id: string;
-  name: string;
-  email: string;
-  avatar?: string;
+  productId: string;
+  productName: string;
+  category: string;
+  thumbnail: string;
+  width: number;
+  height: number;
+  orientation: string;
+  inkType: string;
+  highlightRequired: 'Yes' | 'No';
+  finishing: boolean;
+  designUrl?: string;
+  quantity: number;
+  ratePerSqft: number;
+  finishingCharge: number;
+  totalPrice: number;
 }
+
+export interface OrderItem extends CartItem {}
 
 export interface UploadedFile {
   id: string;
@@ -30,34 +44,31 @@ export interface UploadedFile {
   uploadedAt: string;
 }
 
-export type OrderStatus = 'Pending' | 'Processing' | 'Printing' | 'Ready for Pickup' | 'Delivered' | 'Cancelled' | 'Preparing' | 'Out for Delivery' | 'Out of Stock';
-
-export interface CartItem {
-  id: string;
-  productId: string;
-  productName: string;
-  category: string;
-  thumbnail: string;
-  width: number;
-  height: number;
-  orientation: string;
-  finishing: boolean;
-  quantity: number;
-  ratePerSqft: number;
-  finishingCharge: number;
-  totalPrice: number;
+export interface User {
+  uid: string;
+  name: string;
+  email: string;
+  phone: string;
+  address: string;
+  role: 'user' | 'admin';
+  createdAt: any;
 }
 
-export interface OrderItem extends CartItem {}
+export type OrderStatus = 'Preparing' | 'Out for Delivery' | 'Delivered' | 'Out of Stock' | 'Pending' | 'Processing' | 'Printing' | 'Ready for Pickup' | 'Cancelled';
 
 export interface Order {
   id: string;
-  date: string;
+  orderId: string;
+  userId: string;
   items: OrderItem[];
+  totalPrice: number;
+  status: OrderStatus;
+  paymentStatus: 'Pending' | 'Paid' | 'Failed';
+  timestamp: any;
+  date: string;
   subtotal: number;
   grandTotal: number;
   gst: number;
-  status: OrderStatus;
   paymentMethod: string;
   customerInfo: {
     name: string;

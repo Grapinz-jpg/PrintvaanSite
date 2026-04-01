@@ -3,42 +3,12 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // ===============================================================
-    // Assumed Data Model
+    // PrintVaan Security Rules
     // ===============================================================
-    //
-    // Collection: orders
-    // Document ID: auto-generated
-    // Fields:
-    //   - date: string (required)
-    //   - items: list of objects (required)
-    //   - subtotal: number (required)
-    //   - grandTotal: number (required)
-    //   - gst: number (required)
-    //   - status: string (required, enum)
-    //   - paymentMethod: string (required)
-    //   - customerInfo: map (required)
-    //     - name: string
-    //     - email: string
-    //     - phone: string
-    //     - addressLine1: string
-    //     - addressLine2: string (optional)
-    //     - city: string
-    //     - state: string
-    //     - pinCode: string
-    //     - isPickup: bool
-    //
-    // Collection: users
-    // Document ID: uid
-    // Fields:
-    //   - role: string ('admin' or 'user')
-    //   - email: string
-    //
+    // Users can only see their own data, but the admin can see everything.
+    // Admin is defined as 'learn.grapinz@gmail.com'.
     // ===============================================================
 
-    // ===============================================================
-    // Helper Functions
-    // ===============================================================
-    
     function isAuthenticated() {
       return request.auth != null;
     }
@@ -55,43 +25,27 @@ service cloud.firestore {
       );
     }
 
-    function isOwner(email) {
-      return isAuthenticated() && request.auth.token.email == email;
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
     }
 
-    function isValidOrder(data) {
-      return data.keys().hasAll(['date', 'items', 'subtotal', 'grandTotal', 'status', 'customerInfo']) &&
-             data.status in ['Pending', 'Processing', 'Printing', 'Preparing', 'Out for Delivery', 'Ready for Pickup', 'Delivered', 'Cancelled', 'Out of Stock'] &&
-             data.customerInfo.email is string &&
-             data.items is list &&
-             data.grandTotal is number;
+    function isOrderOwner(orderData) {
+      return isAuthenticated() && request.auth.uid == orderData.userId;
     }
 
-    // ===============================================================
-    // Rules
-    // ===============================================================
-
+    // Rules for 'users' collection
     match /users/{userId} {
-      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
-      allow write: if isAdmin();
+      allow read: if isAuthenticated() && (isOwner(userId) || isAdmin());
+      allow create: if isAuthenticated() && isOwner(userId);
+      allow update: if isAuthenticated() && (isOwner(userId) || isAdmin());
+      allow delete: if isAdmin();
     }
 
+    // Rules for 'orders' collection
     match /orders/{orderId} {
-      // Allow reading if admin or if the order belongs to the user
-      allow read: if isAuthenticated() && (isAdmin() || resource.data.customerInfo.email == request.auth.token.email);
-      
-      // Allow creating orders
-      allow create: if isAuthenticated() && isValidOrder(request.resource.data) && (request.resource.data.customerInfo.email == request.auth.token.email || isAdmin());
-
-      // Allow updating status (Admins only)
-      allow update: if isAuthenticated() && (
-        (isAdmin() && isValidOrder(request.resource.data)) ||
-        (resource.data.customerInfo.email == request.auth.token.email && 
-         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) == false && 
-         isValidOrder(request.resource.data) &&
-         resource.data.status == 'Pending')
-      );
-
+      allow read: if isAuthenticated() && (isOrderOwner(resource.data) || isAdmin());
+      allow create: if isAuthenticated() && isOrderOwner(request.resource.data);
+      allow update: if isAuthenticated() && (isOrderOwner(resource.data) || isAdmin());
       allow delete: if isAdmin();
     }
   }

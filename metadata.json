@@ -1,5 +1,5 @@
 {
   "name": "PrintVaan",
-  "description": "Wholesale printing e-commerce application with Firebase Authentication (Google Sign-In) and Cloud Storage for design management.",
+  "description": "Wholesale printing e-commerce application with Firebase Authentication, Cloud Storage, and a secure Admin Dashboard for order and user management.",
   "requestFramePermissions": []
 }

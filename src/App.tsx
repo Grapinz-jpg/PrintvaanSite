@@ -10,6 +10,9 @@ import OrdersPage from './components/OrdersPage';
 import OrderDetailPage from './components/OrderDetailPage';
 import FilesPage from './components/FilesPage';
 import AuthPage from './components/AuthPage';
+import ProfilePage from './components/ProfilePage';
+import AdminDashboard from './components/AdminDashboard';
+import ProtectedRoute from './components/ProtectedRoute';
 import { getProducts } from './services/db';
 import { Product, Slide, CartItem, Order } from './types';
 import { motion, AnimatePresence } from 'motion/react';
@@ -157,12 +160,13 @@ function AppContent() {
   const handlePlaceOrder = async (orderData: any) => {
     try {
       const newOrder = {
+        userId: auth.currentUser?.uid,
         date: new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
         items: cart.map(item => ({ ...item })),
         subtotal: orderData.subtotal,
         grandTotal: orderData.grandTotal,
         gst: orderData.gst,
-        status: 'Pending',
+        status: 'Processing',
         paymentMethod: orderData.paymentMethod,
         customerInfo: orderData.customerInfo,
         createdAt: serverTimestamp(),
@@ -205,8 +209,17 @@ function AppContent() {
           } />
           <Route path="/files" element={<FilesPage />} />
           <Route path="/login" element={<AuthPage />} />
+          <Route path="/profile" element={<ProfilePage />} />
           <Route path="/orders" element={<OrdersPage />} />
           <Route path="/orders/:id" element={<OrderDetailPage />} />
+          <Route 
+            path="/admin-dashboard" 
+            element={
+              <ProtectedRoute adminOnly>
+                <AdminDashboard />
+              </ProtectedRoute>
+            } 
+          />
         </Routes>
       </main>
 

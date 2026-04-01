@@ -12,6 +12,7 @@ import { Mail, Lock, UserPlus, LogIn, ArrowRight, CheckCircle, AlertCircle, Chro
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
+import { useFirestore } from '../hooks/useFirestore';
 
 export default function AuthPage() {
   const [isLogin, setIsLogin] = useState(true);
@@ -21,6 +22,7 @@ export default function AuthPage() {
   const [verificationSent, setVerificationSent] = useState(false);
   const [unverifiedEmail, setUnverifiedEmail] = useState('');
   const navigate = useNavigate();
+  const { saveUserProfile } = useFirestore();
 
   const handleGoogleSignIn = async () => {
     setLoading(true);
@@ -36,6 +38,7 @@ export default function AuthPage() {
         await signOut(auth);
         toast.error('Email not verified. Please check your inbox.');
       } else {
+        await saveUserProfile({});
         toast.success('Logged in with Google successfully!');
         navigate('/');
       }
@@ -62,6 +65,7 @@ export default function AuthPage() {
           await signOut(auth);
           toast.error('Email not verified. Please check your inbox.');
         } else {
+          await saveUserProfile({});
           toast.success('Logged in successfully!');
           navigate('/');
         }

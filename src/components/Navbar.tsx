@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ShoppingCart, User, Menu, X, LogIn, Package, FileUp, LogOut } from 'lucide-react';
+import { ShoppingCart, User, Menu, X, LogIn, Package, FileUp, LogOut, ShieldCheck } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { auth, googleProvider } from '../firebase';
@@ -69,6 +69,13 @@ export default function Navbar({ cartCount }: NavbarProps) {
 
           {/* User Actions */}
           <div className="hidden md:flex items-center space-x-5">
+            {user && user.email === 'learn.grapinz@gmail.com' && (
+              <Link to="/admin-dashboard" className="p-2 text-brand-navy/70 hover:text-brand-orange transition-colors relative group">
+                <ShieldCheck className="h-6 w-6" />
+                <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-brand-navy text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap font-bold">Admin Panel</span>
+              </Link>
+            )}
+
             {user && (
               <Link to="/files" className="p-2 text-brand-navy/70 hover:text-brand-orange transition-colors relative group">
                 <FileUp className="h-6 w-6" />
@@ -92,11 +99,16 @@ export default function Navbar({ cartCount }: NavbarProps) {
 
             {user ? (
               <div className="flex items-center space-x-3">
-                <div className="flex flex-col items-end">
-                  <span className="text-xs font-black tracking-tighter text-brand-navy leading-none">{user.displayName}</span>
-                  <button onClick={handleLogout} className="text-[10px] font-bold text-gray-400 hover:text-brand-orange uppercase tracking-widest mt-1">Logout</button>
-                </div>
-                <img src={user.photoURL || ''} alt={user.displayName || 'User'} className="h-10 w-10 rounded-2xl border-2 border-white shadow-sm object-cover" />
+                <Link to="/profile" className="flex flex-col items-end group">
+                  <span className="text-xs font-black tracking-tighter text-brand-navy leading-none group-hover:text-brand-orange transition-colors">{user.displayName}</span>
+                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">View Profile</span>
+                </Link>
+                <Link to="/profile">
+                  <img src={user.photoURL || ''} alt={user.displayName || 'User'} className="h-10 w-10 rounded-2xl border-2 border-white shadow-sm object-cover hover:border-brand-orange transition-colors" />
+                </Link>
+                <button onClick={handleLogout} className="p-2 text-brand-navy/40 hover:text-brand-orange transition-colors">
+                  <LogOut className="h-5 w-5" />
+                </button>
               </div>
             ) : (
               <button
@@ -156,9 +168,25 @@ export default function Navbar({ cartCount }: NavbarProps) {
               >
                 My Orders
               </Link>
+              {user && user.email === 'learn.grapinz@gmail.com' && (
+                <Link
+                  to="/admin-dashboard"
+                  className="block px-3 py-3 text-base font-bold text-brand-orange hover:bg-brand-orange/5 rounded-xl transition-all"
+                  onClick={() => setIsMenuOpen(false)}
+                >
+                  Admin Dashboard
+                </Link>
+              )}
               <div className="pt-4">
                 {user ? (
                   <div className="space-y-2">
+                    <Link
+                      to="/profile"
+                      className="block px-3 py-3 text-base font-bold text-brand-navy/70 hover:text-brand-orange hover:bg-gray-50 rounded-xl transition-all"
+                      onClick={() => setIsMenuOpen(false)}
+                    >
+                      My Profile
+                    </Link>
                     <Link
                       to="/files"
                       className="block px-3 py-3 text-base font-bold text-brand-navy/70 hover:text-brand-orange hover:bg-gray-50 rounded-xl transition-all"

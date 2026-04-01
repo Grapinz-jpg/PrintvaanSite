@@ -23,12 +23,22 @@ import {
   Archive,
   XCircle,
   Printer,
-  Loader2
+  Loader2,
+  Cloud,
+  Link2
 } from 'lucide-react';
 import { Product } from '../types';
 import { auth, storage } from '../firebase';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { toast } from 'sonner';
+
+declare global {
+  interface Window {
+    gapi: any;
+    google: any;
+    onGoogleApiLoad: () => void;
+  }
+}
 
 interface PricingCalculatorProps {
   product: Product;
@@ -51,6 +61,8 @@ interface DesignFile {
   width: number;
   height: number;
   orientation: Orientation;
+  isFromDrive?: boolean;
+  driveFileId?: string;
 }
 
 export default function PricingCalculator({ product, onClose, onAddToCart }: PricingCalculatorProps) {
@@ -64,6 +76,9 @@ export default function PricingCalculator({ product, onClose, onAddToCart }: Pri
   const [showUploadSection, setShowUploadSection] = useState(false);
   const [editingDesignId, setEditingDesignId] = useState<string | null>(null);
   const [selectedDesignId, setSelectedDesignId] = useState<string | null>(null);
+  const [showDrivePicker, setShowDrivePicker] = useState(false);
+  const [driveUrl, setDriveUrl] = useState('');
+  const [driveFileName, setDriveFileName] = useState('');
   
   const MAX_DESIGNS = 5;
   
@@ -98,47 +113,252 @@ export default function PricingCalculator({ product, onClose, onAddToCart }: Pri
   const hemmingCharge = (isFlexProduct && hemmingOption === 'Yes') ? area * 0.5 : 0;
   const totalPrice = baseTotal + hemmingCharge;
 
-  const handleAddToCart = () => {
-    const finalWidth = selectedDesignId 
-      ? designs.find(d => d.id === selectedDesignId)?.width || width
-      : width;
-    const finalHeight = selectedDesignId
-      ? designs.find(d => d.id === selectedDesignId)?.height || height
-      : height;
-    const finalOrientation = selectedDesignId
-      ? designs.find(d => d.id === selectedDesignId)?.orientation || orientation
-      : orientation;
+  // Load Google Drive API script
+  const loadGoogleDriveAPI = () => {
+    return new Promise((resolve) => {
+      if (window.gapi) {
+        resolve(true);
+        return;
+      }
+      
+      const script = document.createElement('script');
+      script.src = 'https://apis.google.com/js/api.js';
+      script.onload = () => {
+        window.gapi.load('client:auth2', async () => {
+          await window.gapi.client.init({
+            apiKey: process.env.REACT_APP_GOOGLE_API_KEY,
+            clientId: process.env.REACT_APP_GOOGLE_CLIENT_ID,
+            discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
+            scope: 'https://www.googleapis.com/auth/drive.readonly'
+          });
+          resolve(true);
+        });
+      };
+      document.body.appendChild(script);
+    });
+  };
 
-    const cartItem = {
-      productId: product.id,
-      productName: product.title,
-      category: product.category,
-      thumbnail: product.thumbnail,
-      width: finalWidth,
-      height: finalHeight,
-      orientation: finalOrientation,
-      printingType: printingType,
-      finishing: isFlexProduct ? hemmingOption === 'Yes' : false,
-      hasDesign: designs.length > 0,
-      designs: designs.map(d => ({ 
-        file: d.file,
-        storageUrl: d.storageUrl,
-        settings: { 
-          width: d.width, 
-          height: d.height, 
-          orientation: d.orientation 
+  // Open Google Drive Picker
+  const openDrivePicker = async () => {
+    if (!auth.currentUser) {
+      toast.error('Please login to upload designs');
+      return;
+    }
+
+    try {
+      await loadGoogleDriveAPI();
+      
+      // Create and load Google Picker
+      const pickerScript = document.createElement('script');
+      pickerScript.src = 'https://apis.google.com/js/api.js?onload=onGoogleApiLoad';
+      document.body.appendChild(pickerScript);
+
+      window.onGoogleApiLoad = () => {
+        const picker = new window.google.picker.PickerBuilder()
+          .addView(new window.google.picker.DocsView()
+            .setIncludeFolders(true)
+            .setMimeTypes('image/jpeg,image/png,image/jpg,application/pdf,application/postscript,application/illustrator')
+            .setSelectFolderEnabled(false))
+          .setOAuthToken(window.gapi.auth2.getAuthInstance().currentUser.get().getAuthResponse().access_token)
+          .setDeveloperKey(process.env.REACT_APP_GOOGLE_API_KEY)
+          .setCallback((data) => {
+            if (data.action === window.google.picker.Action.PICKED) {
+              const file = data.docs[0];
+              handleDriveFileSelected(file);
+            }
+          })
+          .build();
+        picker.setVisible(true);
+      };
+    } catch (error) {
+      console.error('Error opening Drive picker:', error);
+      toast.error('Failed to open Google Drive. Please check your configuration.');
+    }
+  };
+
+  // Handle file selected from Google Drive
+  const handleDriveFileSelected = async (driveFile: any) => {
+    if (!auth.currentUser) return;
+
+    try {
+      const designId = editingDesignId || Date.now().toString();
+      const fileName = driveFile.name;
+      const fileSize = driveFile.sizeBytes || 0;
+      const fileId = driveFile.id;
+      const mimeType = driveFile.mimeType;
+
+      // Get the file from Google Drive
+      const accessToken = window.gapi.auth2.getAuthInstance().currentUser.get().getAuthResponse().access_token;
+      
+      // First, get the file content as blob
+      const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`
         }
-      })),
-      selectedDesignId: selectedDesignId,
-      quantity: 1,
-      totalPrice: totalPrice,
-      hemmingCharge: hemmingCharge,
-      area: area,
-      basePrice: baseTotal
-    };
-    
-    onAddToCart(cartItem);
-    onClose();
+      });
+      
+      const blob = await response.blob();
+      const file = new File([blob], fileName, { type: mimeType });
+
+      if (fileSize > 10 * 1024 * 1024) {
+        toast.error('File size must be less than 10MB');
+        return;
+      }
+
+      // Upload to Firebase Storage
+      const storageRef = ref(storage, `designs/${auth.currentUser.uid}/${Date.now()}_${fileName}`);
+      const uploadTask = uploadBytesResumable(storageRef, file);
+
+      // Create initial design entry
+      const initialDesign: DesignFile = {
+        id: designId,
+        file: file,
+        name: fileName,
+        size: fileSize,
+        preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined,
+        uploadProgress: 0,
+        width: width,
+        height: height,
+        orientation: orientation,
+        isFromDrive: true,
+        driveFileId: fileId
+      };
+
+      if (editingDesignId) {
+        setDesigns(prev => prev.map(d => d.id === editingDesignId ? initialDesign : d));
+      } else {
+        setDesigns(prev => [...prev, initialDesign]);
+      }
+
+      uploadTask.on('state_changed', 
+        (snapshot) => {
+          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+          setDesigns(prev => prev.map(d => d.id === designId ? { ...d, uploadProgress: progress } : d));
+        }, 
+        (error) => {
+          console.error("Upload error:", error);
+          toast.error("Upload failed: " + error.message);
+          setDesigns(prev => prev.filter(d => d.id !== designId));
+        }, 
+        async () => {
+          const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+          setDesigns(prev => prev.map(d => d.id === designId ? { ...d, storageUrl: downloadURL, uploadProgress: 100 } : d));
+          toast.success("Design uploaded successfully from Google Drive!");
+          setShowUploadSection(false);
+          setShowDrivePicker(false);
+          setEditingDesignId(null);
+          setDriveUrl('');
+          setDriveFileName('');
+        }
+      );
+      
+    } catch (error) {
+      console.error("Error processing Drive file:", error);
+      toast.error("Failed to process file from Google Drive");
+    }
+  };
+
+  // Alternative: Manual URL input from Google Drive
+  const handleDriveUrlSubmit = async () => {
+    if (!driveUrl.trim()) {
+      toast.error('Please enter a Google Drive URL');
+      return;
+    }
+
+    if (!auth.currentUser) {
+      toast.error('Please login to upload designs');
+      return;
+    }
+
+    try {
+      // Extract file ID from Google Drive URL
+      const fileIdMatch = driveUrl.match(/[-\w]{25,}/);
+      if (!fileIdMatch) {
+        toast.error('Invalid Google Drive URL');
+        return;
+      }
+
+      const fileId = fileIdMatch[0];
+      const designId = editingDesignId || Date.now().toString();
+      
+      // Get file metadata from Drive API
+      const accessToken = window.gapi?.auth2?.getAuthInstance()?.currentUser?.get()?.getAuthResponse()?.access_token;
+      
+      if (!accessToken) {
+        // If not authenticated, try to authenticate first
+        await loadGoogleDriveAPI();
+        const authInstance = window.gapi.auth2.getAuthInstance();
+        await authInstance.signIn();
+        const newAccessToken = authInstance.currentUser.get().getAuthResponse().access_token;
+        
+        // Fetch file metadata
+        const metadataResponse = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=name,size,mimeType`, {
+          headers: {
+            'Authorization': `Bearer ${newAccessToken}`
+          }
+        });
+        
+        const metadata = await metadataResponse.json();
+        
+        // Get file content
+        const fileResponse = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+          headers: {
+            'Authorization': `Bearer ${newAccessToken}`
+          }
+        });
+        
+        const blob = await fileResponse.blob();
+        const file = new File([blob], metadata.name, { type: metadata.mimeType });
+
+        // Upload to Firebase
+        const storageRef = ref(storage, `designs/${auth.currentUser.uid}/${Date.now()}_${metadata.name}`);
+        const uploadTask = uploadBytesResumable(storageRef, file);
+
+        const initialDesign: DesignFile = {
+          id: designId,
+          file: file,
+          name: metadata.name,
+          size: metadata.size,
+          preview: metadata.mimeType.startsWith('image/') ? URL.createObjectURL(file) : undefined,
+          uploadProgress: 0,
+          width: width,
+          height: height,
+          orientation: orientation,
+          isFromDrive: true,
+          driveFileId: fileId
+        };
+
+        if (editingDesignId) {
+          setDesigns(prev => prev.map(d => d.id === editingDesignId ? initialDesign : d));
+        } else {
+          setDesigns(prev => [...prev, initialDesign]);
+        }
+
+        uploadTask.on('state_changed', 
+          (snapshot) => {
+            const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+            setDesigns(prev => prev.map(d => d.id === designId ? { ...d, uploadProgress: progress } : d));
+          }, 
+          (error) => {
+            console.error("Upload error:", error);
+            toast.error("Upload failed: " + error.message);
+            setDesigns(prev => prev.filter(d => d.id !== designId));
+          }, 
+          async () => {
+            const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+            setDesigns(prev => prev.map(d => d.id === designId ? { ...d, storageUrl: downloadURL, uploadProgress: 100 } : d));
+            toast.success("Design uploaded successfully from Google Drive!");
+            setShowUploadSection(false);
+            setEditingDesignId(null);
+            setDriveUrl('');
+            setDriveFileName('');
+          }
+        );
+      }
+    } catch (error) {
+      console.error("Error processing Drive URL:", error);
+      toast.error("Failed to process Google Drive URL");
+    }
   };
 
   const handleAddDesign = () => {
@@ -184,7 +404,7 @@ export default function PricingCalculator({ product, onClose, onAddToCart }: Pri
     }
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleLocalFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       if (!auth.currentUser) {
@@ -207,9 +427,9 @@ export default function PricingCalculator({ product, onClose, onAddToCart }: Pri
       const storageRef = ref(storage, `designs/${auth.currentUser.uid}/${Date.now()}_${file.name}`);
       const uploadTask = uploadBytesResumable(storageRef, file);
 
-      // Create initial design entry
       const initialDesign: DesignFile = {
         id: designId,
+        file: file,
         name: file.name,
         size: file.size,
         preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined,
@@ -249,9 +469,59 @@ export default function PricingCalculator({ product, onClose, onAddToCart }: Pri
     }
   };
 
+  const handleAddToCart = () => {
+    const finalWidth = selectedDesignId 
+      ? designs.find(d => d.id === selectedDesignId)?.width || width
+      : width;
+    const finalHeight = selectedDesignId
+      ? designs.find(d => d.id === selectedDesignId)?.height || height
+      : height;
+    const finalOrientation = selectedDesignId
+      ? designs.find(d => d.id === selectedDesignId)?.orientation || orientation
+      : orientation;
+
+    const cartItem = {
+      productId: product.id,
+      productName: product.title,
+      category: product.category,
+      thumbnail: product.thumbnail,
+      width: finalWidth,
+      height: finalHeight,
+      orientation: finalOrientation,
+      inkType: printingType,
+      highlightRequired: isFlexProduct ? hemmingOption : 'No',
+      finishing: isFlexProduct ? hemmingOption === 'Yes' : false,
+      designUrl: designs.find(d => d.id === selectedDesignId)?.storageUrl || designs[0]?.storageUrl,
+      hasDesign: designs.length > 0,
+      designs: designs.map(d => ({ 
+        file: d.file,
+        storageUrl: d.storageUrl,
+        settings: { 
+          width: d.width, 
+          height: d.height, 
+          orientation: d.orientation 
+        }
+      })),
+      selectedDesignId: selectedDesignId,
+      quantity: 1,
+      totalPrice: totalPrice,
+      hemmingCharge: hemmingCharge,
+      area: area,
+      basePrice: baseTotal,
+      ratePerSqft: product.basePricePerSqft,
+      finishingCharge: hemmingCharge
+    };
+    
+    onAddToCart(cartItem);
+    onClose();
+  };
+
   const cancelUpload = () => {
     setShowUploadSection(false);
     setEditingDesignId(null);
+    setShowDrivePicker(false);
+    setDriveUrl('');
+    setDriveFileName('');
   };
 
   const getOrientationIcon = (orientationValue: string) => {
@@ -302,7 +572,7 @@ export default function PricingCalculator({ product, onClose, onAddToCart }: Pri
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
             {/* Left Column - Options */}
             <div className="space-y-8">
-              {/* Printing Type Selection - NEW SECTION */}
+              {/* Printing Type Selection */}
               <div>
                 <div className="flex items-center gap-2 mb-4">
                   <div className="p-1.5 bg-brand-orange/10 rounded-lg">
@@ -533,23 +803,65 @@ export default function PricingCalculator({ product, onClose, onAddToCart }: Pri
                             <XCircle className="h-4 w-4 text-gray-500" />
                           </button>
                         </div>
-                        <input
-                          type="file"
-                          id="design-upload"
-                          accept="image/*,.pdf,.ai,.eps"
-                          onChange={handleFileUpload}
-                          className="hidden"
-                        />
-                        <label
-                          htmlFor="design-upload"
-                          className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-brand-orange rounded-xl cursor-pointer hover:bg-brand-orange/10 transition-all group bg-white"
-                        >
-                          <div className="p-3 bg-brand-orange/10 rounded-full mb-3 group-hover:bg-brand-orange/20 transition-colors">
-                            <Upload className="h-6 w-6 text-brand-orange" />
+                        
+                        {/* Two upload options */}
+                        <div className="space-y-3">
+                          {/* Local File Upload */}
+                          <div>
+                            <input
+                              type="file"
+                              id="design-upload"
+                              accept="image/*,.pdf,.ai,.eps"
+                              onChange={handleLocalFileUpload}
+                              className="hidden"
+                            />
+                            <label
+                              htmlFor="design-upload"
+                              className="flex items-center justify-center gap-2 p-3 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:bg-white transition-all group bg-white"
+                            >
+                              <Upload className="h-5 w-5 text-brand-orange" />
+                              <span className="font-bold text-sm text-brand-navy">Upload from Computer</span>
+                            </label>
                           </div>
-                          <p className="font-bold text-brand-navy mb-1">Click to upload your design</p>
-                          <p className="text-[10px] text-gray-400">JPG, PNG, PDF, AI, EPS (Max 10MB)</p>
-                        </label>
+
+                          {/* Google Drive Option */}
+                          <div className="relative">
+                            <div className="absolute inset-0 flex items-center">
+                              <div className="w-full border-t border-gray-300"></div>
+                            </div>
+                            <div className="relative flex justify-center text-xs uppercase">
+                              <span className="bg-white px-2 text-gray-500">OR</span>
+                            </div>
+                          </div>
+
+                          <button
+                            onClick={openDrivePicker}
+                            className="w-full flex items-center justify-center gap-2 p-3 bg-blue-50 hover:bg-blue-100 rounded-xl transition-all border-2 border-blue-200"
+                          >
+                            <Cloud className="h-5 w-5 text-blue-600" />
+                            <span className="font-bold text-sm text-blue-700">Select from Google Drive</span>
+                          </button>
+
+                          {/* Manual URL Input */}
+                          <div className="mt-3 pt-3 border-t border-gray-200">
+                            <p className="text-xs text-gray-500 mb-2">Or paste Google Drive URL:</p>
+                            <div className="flex gap-2">
+                              <input
+                                type="text"
+                                value={driveUrl}
+                                onChange={(e) => setDriveUrl(e.target.value)}
+                                placeholder="https://drive.google.com/file/d/..."
+                                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-brand-orange focus:outline-none"
+                              />
+                              <button
+                                onClick={handleDriveUrlSubmit}
+                                className="px-4 py-2 bg-gray-800 text-white rounded-lg font-bold text-sm hover:bg-gray-900 transition-colors"
+                              >
+                                <Link2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     </motion.div>
                   )}
@@ -582,7 +894,14 @@ export default function PricingCalculator({ product, onClose, onAddToCart }: Pri
                             )}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="font-bold text-brand-navy text-sm truncate">{design.name}</p>
+                            <p className="font-bold text-brand-navy text-sm truncate">
+                              {design.name}
+                              {design.isFromDrive && (
+                                <span className="ml-2 text-[10px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
+                                  Drive
+                                </span>
+                              )}
+                            </p>
                             <div className="flex items-center gap-2">
                               <p className="text-[10px] text-gray-500">
                                 {(design.size / 1024).toFixed(1)} KB • {design.width}×{design.height} ft

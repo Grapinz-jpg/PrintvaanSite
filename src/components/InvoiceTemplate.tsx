@@ -104,7 +104,7 @@ export default function InvoiceTemplate({ order, id }: InvoiceTemplateProps) {
                 </td>
                 <td className="p-4 text-xs text-slate-600">
                   {item.width}x{item.height} ft, {item.orientation}<br />
-                  Finishing: {item.finishing ? 'Yes' : 'No'}
+                  Ink: {item.inkType || 'N/A'}, Highlight: {item.highlightRequired || (item.finishing ? 'Yes' : 'No')}
                 </td>
                 <td className="p-4 text-center font-black">{item.quantity}</td>
                 <td className="p-4 text-right">₹{total.toFixed(2)}</td>
