@@ -1,20 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { auth, db } from '../firebase';
-import { signOut, onAuthStateChanged } from 'firebase/auth';
-import { doc, onSnapshot, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { signOut, onAuthStateChanged, sendPasswordResetEmail } from 'firebase/auth';
+import { doc, onSnapshot, setDoc, serverTimestamp } from 'firebase/firestore';
 import { User } from '../types';
 import { useFirestore } from '../hooks/useFirestore';
-import { motion, AnimatePresence } from 'motion/react';
-import { User as UserIcon, Phone, MapPin, Mail, Shield, Edit2, Save, X, LogOut, Loader2 } from 'lucide-react';
+import { motion } from 'motion/react';
+import { User as UserIcon, Phone, MapPin, Mail, Shield, Edit2, Save, X, LogOut, Loader2, Lock } from 'lucide-react';
 import { toast } from 'sonner';
-import { cn } from '../lib/utils';
 
 export default function ProfilePage() {
   const [profile, setProfile] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
-  const [editForm, setEditForm] = useState({ phone: '', address: '' });
+  const [editForm, setEditForm] = useState({ name: '', phone: '', address: '' });
   const [saving, setSaving] = useState(false);
   const navigate = useNavigate();
   const { saveUserProfile } = useFirestore();
@@ -31,9 +30,12 @@ export default function ProfilePage() {
         if (docSnap.exists()) {
           const data = docSnap.data() as User;
           setProfile(data);
-          setEditForm({ phone: data.phone, address: data.address });
+          setEditForm({ 
+            name: data.name || '', 
+            phone: data.phone || '', 
+            address: data.address || '' 
+          });
         } else {
-          // Create default profile if it doesn't exist
           const newProfile: User = {
             uid: user.uid,
             name: user.displayName || 'Guest User',
@@ -67,6 +69,16 @@ export default function ProfilePage() {
     }
   };
 
+  const handlePasswordReset = async () => {
+    if (!profile?.email) return;
+    try {
+      await sendPasswordResetEmail(auth, profile.email);
+      toast.success('Password reset email sent to your inbox!');
+    } catch (error) {
+      toast.error('Failed to send reset email');
+    }
+  };
+
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!profile) return;
@@ -74,6 +86,7 @@ export default function ProfilePage() {
     setSaving(true);
     try {
       await saveUserProfile({
+        name: editForm.name,
         phone: editForm.phone,
         address: editForm.address,
       });
@@ -123,10 +136,31 @@ export default function ProfilePage() {
 
           {/* Content */}
           <div className="p-8">
-            <form onSubmit={handleUpdateProfile} className="space-y-8">
-              <div className="grid gap-6">
-                {/* Email (Read-only) */}
+            <form onSubmit={handleUpdateProfile} className="space-y-6">
+              <div className="grid gap-4">
+                
+                {/* Full Name */}
                 <div className="flex items-start space-x-4 p-4 rounded-2xl bg-brand-cream/30 border border-brand-navy/5">
+                  <div className="mt-1 p-2 bg-brand-navy/5 rounded-xl">
+                    <UserIcon className="h-5 w-5 text-brand-navy" />
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-brand-navy/40">Full Name</label>
+                    {isEditing ? (
+                      <input
+                        type="text"
+                        value={editForm.name}
+                        onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                        className="w-full mt-1 bg-white border border-brand-navy/10 rounded-xl px-4 py-2 font-bold focus:outline-none focus:ring-2 focus:ring-brand-orange/20"
+                      />
+                    ) : (
+                      <p className="font-bold text-brand-navy">{profile.name}</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Email (Read-only) */}
+                <div className="flex items-start space-x-4 p-4 rounded-2xl bg-gray-50 border border-brand-navy/5 opacity-70">
                   <div className="mt-1 p-2 bg-brand-navy/5 rounded-xl">
                     <Mail className="h-5 w-5 text-brand-navy" />
                   </div>
@@ -149,7 +183,6 @@ export default function ProfilePage() {
                         value={editForm.phone}
                         onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
                         className="w-full mt-1 bg-white border border-brand-navy/10 rounded-xl px-4 py-2 font-bold focus:outline-none focus:ring-2 focus:ring-brand-orange/20"
-                        placeholder="Enter your phone number"
                       />
                     ) : (
                       <p className="font-bold text-brand-navy">{profile.phone || 'Not provided'}</p>
@@ -168,18 +201,39 @@ export default function ProfilePage() {
                       <textarea
                         value={editForm.address}
                         onChange={(e) => setEditForm({ ...editForm, address: e.target.value })}
-                        className="w-full mt-1 bg-white border border-brand-navy/10 rounded-xl px-4 py-2 font-bold focus:outline-none focus:ring-2 focus:ring-brand-orange/20 min-h-[100px]"
-                        placeholder="Enter your full address"
+                        className="w-full mt-1 bg-white border border-brand-navy/10 rounded-xl px-4 py-2 font-bold focus:outline-none focus:ring-2 focus:ring-brand-orange/20 min-h-[80px]"
                       />
                     ) : (
                       <p className="font-bold text-brand-navy leading-relaxed">{profile.address || 'Not provided'}</p>
                     )}
                   </div>
                 </div>
+
+                {/* Password Section */}
+                {!isEditing && (
+                  <div className="flex items-center justify-between p-4 rounded-2xl bg-brand-orange/5 border border-brand-orange/20">
+                    <div className="flex items-center space-x-4">
+                      <div className="p-2 bg-brand-orange/10 rounded-xl">
+                        <Lock className="h-5 w-5 text-brand-orange" />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-black uppercase tracking-widest text-brand-orange/60">Security</label>
+                        <p className="font-bold text-brand-navy text-sm">Account Password</p>
+                      </div>
+                    </div>
+                    <button 
+                      type="button"
+                      onClick={handlePasswordReset}
+                      className="text-xs font-black uppercase tracking-tighter text-brand-orange hover:underline"
+                    >
+                      Reset Password
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Actions */}
-              <div className="flex flex-col space-y-4 pt-4">
+              <div className="flex flex-col space-y-3 pt-4">
                 <div className="flex items-center space-x-4">
                   {isEditing ? (
                     <>
@@ -195,12 +249,11 @@ export default function ProfilePage() {
                         type="button"
                         onClick={() => {
                           setIsEditing(false);
-                          setEditForm({ phone: profile.phone, address: profile.address });
+                          setEditForm({ name: profile.name, phone: profile.phone, address: profile.address });
                         }}
-                        className="px-6 bg-brand-cream text-brand-navy font-black py-4 rounded-2xl flex items-center justify-center space-x-2 hover:bg-brand-navy/5 transition-colors"
+                        className="px-6 bg-brand-cream text-brand-navy font-black py-4 rounded-2xl flex items-center justify-center transition-colors"
                       >
                         <X className="h-5 w-5" />
-                        <span>Cancel</span>
                       </button>
                     </>
                   ) : (
