@@ -24,19 +24,19 @@ import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 const heroSlides: Slide[] = [
   {
     id: 's1',
-    image: 'https://picsum.photos/seed/banner1/1920/600',
+    image: 'https://deq64r0ss2hgl.cloudfront.net/images/product/non-tearable-banners-48099206359233.jpg',
     alt: 'Premium Flex Banners',
     category: 'Normal flex',
   },
   {
     id: 's2',
-    image: 'https://picsum.photos/seed/banner2/1920/600',
+    image: 'https://orchiddigitals.com/wp-content/uploads/2015/05/custom-shape-cut-vinyl-stickers-1024x683.jpg.webp',
     alt: 'High Quality Vinyl Prints',
     category: 'Vinyl',
   },
   {
     id: 's3',
-    image: 'https://picsum.photos/seed/banner3/1920/600',
+    image: 'https://cpimg.tistatic.com/10152499/b/4/Sunpack-Printing-Services..jpg',
     alt: 'Sun Pack Advertising',
     category: 'Sun pack printing',
   },

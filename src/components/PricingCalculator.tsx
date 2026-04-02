@@ -161,7 +161,7 @@ export default function PricingCalculator({ product, onClose, onAddToCart }: Pri
             .setSelectFolderEnabled(false))
           .setOAuthToken(window.gapi.auth2.getAuthInstance().currentUser.get().getAuthResponse().access_token)
           .setDeveloperKey(process.env.REACT_APP_GOOGLE_API_KEY)
-          .setCallback((data) => {
+          .setCallback((data : any) => {
             if (data.action === window.google.picker.Action.PICKED) {
               const file = data.docs[0];
               handleDriveFileSelected(file);

@@ -1,0 +1,1 @@
+<h1>Return & Warranty Policy</h1>
